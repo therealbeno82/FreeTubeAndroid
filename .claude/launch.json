@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev:web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "_scripts/dev-runner.js",
+        "--web"
+      ],
+      "port": 9080
+    }
+  ]
+}
