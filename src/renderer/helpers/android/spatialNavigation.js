@@ -7,6 +7,10 @@
  * element actually lies in the direction pressed, the way every other television app
  * behaves.
  *
+ * The video player is one destination rather than a row of shaka buttons: arriving on it
+ * focuses the container, the horizontal keys then seek as they do on the desktop build,
+ * and the vertical keys are how you leave it again.
+ *
  * The geometry is deliberately kept clear of the DOM so that it can be tested on its
  * own, without a browser.
  */
@@ -175,13 +179,13 @@ export function pickBestCandidate(from, candidates, direction) {
 
 const FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, summary, [tabindex]'
 
-/** The player keeps the desktop arrow bindings: seek on left and right, volume on up and down. */
+/** The player is one place to arrive at, not a row of shaka buttons to step through. */
 const PLAYER_SELECTOR = '.ftVideoPlayer'
 
 /** FtPrompt already walks its own button row horizontally, and wraps around while doing it. */
 const PROMPT_SELECTOR = '.prompt'
 
-const SKIP_SELECTOR = `[inert], [aria-hidden="true"], ${PLAYER_SELECTOR}`
+const HIDDEN_SELECTOR = '[inert], [aria-hidden="true"]'
 
 /** Input types where the arrow keys change the value rather than doing nothing. */
 const EDITABLE_INPUT_TYPES = new Set([
@@ -190,13 +194,17 @@ const EDITABLE_INPUT_TYPES = new Set([
 ])
 
 /**
- * Whether the focused element already does something meaningful with the arrow keys, in
- * which case taking them away would be a regression.
+ * Whether the focused element already does something meaningful with the arrow key
+ * pressed, in which case taking it away would be a regression.
+ *
+ * Exported so the policy can be tested without a browser; it only needs `tagName`,
+ * `type`, `isContentEditable` and `closest` from what it is given.
+ *
  * @param {Element} element
  * @param {string} key
  * @returns {boolean}
  */
-function ownsArrowKeys(element, key) {
+export function ownsArrowKeys(element, key) {
   if (element.isContentEditable) {
     return true
   }
@@ -211,8 +219,12 @@ function ownsArrowKeys(element, key) {
     return true
   }
 
+  // While the player has focus the horizontal keys seek, exactly as they do on the
+  // desktop build. The vertical keys are how you leave it again, which costs nothing
+  // here: a remote's volume buttons are handled by the television itself and never
+  // reach the app, so the player's volume binding is of no use on one.
   if (element.closest(PLAYER_SELECTOR) !== null) {
-    return true
+    return key === 'ArrowLeft' || key === 'ArrowRight'
   }
 
   // only the vertical keys are left for spatial navigation inside a prompt
@@ -224,18 +236,12 @@ function ownsArrowKeys(element, key) {
 }
 
 /**
+ * Whether an element is on screen at all. A zero sized rect covers `display: none`, and
+ * checkVisibility, where this web view has it, covers the rest.
  * @param {Element} element
  * @returns {boolean}
  */
-function isNavigable(element) {
-  if (element.tabIndex < 0 || element.disabled) {
-    return false
-  }
-
-  if (element.closest(SKIP_SELECTOR) !== null) {
-    return false
-  }
-
+function isOnScreen(element) {
   // not in every web view version yet, so only trusted when it is actually there
   if (typeof element.checkVisibility === 'function' && !element.checkVisibility({ checkVisibilityCSS: true })) {
     return false
@@ -247,10 +253,55 @@ function isNavigable(element) {
 }
 
 /**
+ * @param {Element} element
+ * @returns {boolean}
+ */
+function isReachable(element) {
+  return element.closest(HIDDEN_SELECTOR) === null && isOnScreen(element)
+}
+
+/**
+ * @param {Element} element
+ * @returns {boolean}
+ */
+function isNavigable(element) {
+  if (element.tabIndex < 0 || element.disabled) {
+    return false
+  }
+
+  // the player joins the candidates as a whole, below, so the controls inside it are not
+  // destinations in their own right
+  if (element.closest(PLAYER_SELECTOR) !== null) {
+    return false
+  }
+
+  return isReachable(element)
+}
+
+/**
+ * Where candidates may be looked for. While something is fullscreen nothing outside it is
+ * on screen, and focus landing out there would strand the viewer on a control they cannot
+ * see.
+ * @returns {Document | Element}
+ */
+function navigationRoot() {
+  return document.fullscreenElement ?? document
+}
+
+/**
  * @returns {Element[]}
  */
 function getNavigableElements() {
-  return Array.prototype.filter.call(document.querySelectorAll(FOCUSABLE_SELECTOR), isNavigable)
+  const root = navigationRoot()
+  const elements = Array.prototype.filter.call(root.querySelectorAll(FOCUSABLE_SELECTOR), isNavigable)
+
+  for (const player of root.querySelectorAll(PLAYER_SELECTOR)) {
+    if (isReachable(player)) {
+      elements.push(player)
+    }
+  }
+
+  return elements
 }
 
 /**

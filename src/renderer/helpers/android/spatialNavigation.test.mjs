@@ -11,6 +11,7 @@
 
 import {
   overlapsPerpendicular,
+  ownsArrowKeys,
   pickBestCandidate,
   scoreCandidate
 } from './spatialNavigation.js'
@@ -91,6 +92,41 @@ check(
 check('the overlap test tells them apart', overlapsPerpendicular(box, diagonalAndVeryClose, 'down'), false)
 check('so the aligned one wins', pickBestCandidate(box, [diagonalAndVeryClose, alignedButFarBelow], 'down'), 1)
 check('and a diagonal is still reachable alone', pickBestCandidate(box, [diagonalAndVeryClose], 'down'), 0)
+
+console.log('\nwho owns the arrow keys')
+
+/** Enough of an element for the ownership rule, which never touches the real DOM. */
+function element({ tagName = 'DIV', type, isContentEditable = false, within = [] } = {}) {
+  return {
+    tagName,
+    type,
+    isContentEditable,
+    closest: selector => (within.some(ancestor => selector.includes(ancestor)) ? {} : null)
+  }
+}
+
+const link = element({ tagName: 'A' })
+const textBox = element({ tagName: 'INPUT', type: 'text' })
+const checkbox = element({ tagName: 'INPUT', type: 'checkbox' })
+const slider = element({ tagName: 'INPUT', type: 'range' })
+const inThePlayer = element({ within: ['.ftVideoPlayer'] })
+const inAPrompt = element({ tagName: 'BUTTON', within: ['.prompt'] })
+
+check('a link keeps none of them', ownsArrowKeys(link, 'ArrowDown'), false)
+check('a text box types with them', ownsArrowKeys(textBox, 'ArrowLeft'), true)
+check('a textarea does too', ownsArrowKeys(element({ tagName: 'TEXTAREA' }), 'ArrowDown'), true)
+check('a select changes option', ownsArrowKeys(element({ tagName: 'SELECT' }), 'ArrowDown'), true)
+check('a slider changes value', ownsArrowKeys(slider, 'ArrowRight'), true)
+check('a checkbox does nothing with them', ownsArrowKeys(checkbox, 'ArrowRight'), false)
+check('contenteditable moves the caret', ownsArrowKeys(element({ isContentEditable: true }), 'ArrowUp'), true)
+
+check('the player seeks on left', ownsArrowKeys(inThePlayer, 'ArrowLeft'), true)
+check('the player seeks on right', ownsArrowKeys(inThePlayer, 'ArrowRight'), true)
+check('but up leaves the player', ownsArrowKeys(inThePlayer, 'ArrowUp'), false)
+check('and down leaves the player', ownsArrowKeys(inThePlayer, 'ArrowDown'), false)
+
+check('a prompt walks its own button row', ownsArrowKeys(inAPrompt, 'ArrowRight'), true)
+check('but vertical keys still navigate it', ownsArrowKeys(inAPrompt, 'ArrowDown'), false)
 
 console.log(`\n${passed} passed, ${failed} failed\n`)
 

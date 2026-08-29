@@ -32,6 +32,7 @@ import {
 import { MANIFEST_TYPE_SABR } from '../../helpers/player/SabrManifestParser'
 import { setupSabrScheme } from '../../helpers/player/SabrSchemePlugin'
 import { STATE_BUFFERING, STATE_PAUSED, STATE_PLAYING, updateMediaSessionState } from '../../helpers/android/media-session'
+import { isTelevision } from '../../helpers/android/system'
 import android from 'android'
 
 /** @typedef {import('../../helpers/sponsorblock').SponsorBlockCategory} SponsorBlockCategory */
@@ -3421,10 +3422,52 @@ export default defineComponent({
       showOverlayControls()
     }
 
+    /**
+     * On a television the d-pad treats the player as one destination rather than a row of
+     * controls, so the container itself takes focus and answers the centre button.
+     */
+    const isOnTelevision = isTelevision()
+
+    /**
+     * Called when the d-pad arrives on the player. Raising the controls is what tells the
+     * viewer that the remote is now driving playback rather than the page.
+     */
+    function showTelevisionControls() {
+      if (ui !== null) {
+        showOverlayControls()
+      }
+    }
+
+    /**
+     * The centre button of a remote reaches the focused container as an ordinary Enter.
+     * @param {KeyboardEvent} event
+     */
+    function handleTelevisionSelect(event) {
+      const video_ = video.value
+
+      if (video_ === null) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (video_.paused) {
+        video_.play()
+      } else {
+        video_.pause()
+      }
+
+      showTelevisionControls()
+    }
+
     return {
       container,
       video,
       vrCanvas,
+
+      isOnTelevision,
+      showTelevisionControls,
+      handleTelevisionSelect,
 
       fullWindowEnabled,
       forceAspectRatio,

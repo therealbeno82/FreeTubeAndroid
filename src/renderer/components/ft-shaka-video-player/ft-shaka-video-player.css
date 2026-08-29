@@ -22,6 +22,17 @@
   overflow: hidden;
 }
 
+/*
+  Only ever matches on a television, where the container is given a tabindex so the d-pad
+  can land on the player as a whole. Chrome draws no ring of its own for programmatic
+  focus on a tabindex="-1" element, so without this nothing on screen would say that the
+  remote is now driving playback rather than the page.
+*/
+.ftVideoPlayer:focus {
+  outline: 3px solid var(--primary-color);
+  outline-offset: -3px;
+}
+
 .player {
   width: 100%;
 }
