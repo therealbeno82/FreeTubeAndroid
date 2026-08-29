@@ -1,0 +1,97 @@
+/**
+ * Tests for the geometry behind d-pad navigation.
+ *
+ *   node src/renderer/helpers/android/spatialNavigation.test.mjs
+ *
+ * No test runner and no dependencies, because the repository has neither. The layouts
+ * below are modelled on a subscriptions page: a top bar, a side nav, and a grid of video
+ * cards. Only the pure scoring functions are covered; anything touching the DOM needs a
+ * device.
+ */
+
+import {
+  overlapsPerpendicular,
+  pickBestCandidate,
+  scoreCandidate
+} from './spatialNavigation.js'
+
+const rect = (left, top, right, bottom) => ({ left, top, right, bottom })
+
+let passed = 0
+let failed = 0
+
+function check(label, got, want) {
+  if (got === want) {
+    passed++
+    console.log(`  ok    ${label}`)
+  } else {
+    failed++
+    console.log(`  FAIL  ${label}\n          got ${got}, want ${want}`)
+  }
+}
+
+const topSearch = rect(220, 10, 700, 50)
+const topProfile = rect(720, 10, 780, 50)
+const nav0 = rect(0, 100, 200, 140)
+const nav1 = rect(0, 160, 200, 200)
+const nav2 = rect(0, 220, 200, 260)
+const card00 = rect(220, 100, 500, 300)
+const card01 = rect(520, 100, 800, 300)
+const card02 = rect(820, 100, 1100, 300)
+const card10 = rect(220, 320, 500, 520)
+const card11 = rect(520, 320, 800, 520)
+const card12 = rect(820, 320, 1100, 520)
+
+const page = { topSearch, topProfile, nav0, nav1, nav2, card00, card01, card02, card10, card11, card12 }
+const names = new Map(Object.entries(page).map(([name, value]) => [value, name]))
+const everything = Object.values(page)
+
+/** Moves from one named rect and reports where focus lands. */
+function move(source, direction) {
+  const others = everything.filter(candidate => candidate !== source)
+  const index = pickBestCandidate(source, others, direction)
+
+  return index === -1 ? null : names.get(others[index])
+}
+
+console.log('\na column moves one step at a time')
+check('nav0 down stops at nav1, not nav2', move(nav0, 'down'), 'nav1')
+check('nav1 up returns to nav0', move(nav1, 'up'), 'nav0')
+check('nav0 right crosses into the grid', move(nav0, 'right'), 'card00')
+
+console.log('\na grid moves along its rows and columns')
+check('card00 right', move(card00, 'right'), 'card01')
+check('card01 right', move(card01, 'right'), 'card02')
+check('card02 right runs out of row', move(card02, 'right'), null)
+check('card00 down', move(card00, 'down'), 'card10')
+check('card01 down stays in its column', move(card01, 'down'), 'card11')
+check('card12 up stays in its column', move(card12, 'up'), 'card02')
+check('card00 up reaches the top bar', move(card00, 'up'), 'topSearch')
+check('card10 left picks the nearest nav row', move(card10, 'left'), 'nav2')
+
+console.log('\nnothing behind the direction of travel is a candidate')
+check('card00 is not below card10', scoreCandidate(card10, card00, 'down'), null)
+check('card01 is not left of card00', scoreCandidate(card00, card01, 'left'), null)
+check('an element is never its own candidate', scoreCandidate(nav0, nav0, 'down'), null)
+
+console.log('\nrows whose items differ by a pixel stay navigable')
+const item = rect(0, 100, 100, 140)
+check('a 2px overlap is still a move', scoreCandidate(item, rect(98, 100, 200, 140), 'right') !== null, true)
+check('a 20px overlap is not', scoreCandidate(item, rect(80, 100, 200, 140), 'right'), null)
+
+console.log('\nalignment outranks proximity')
+const box = rect(0, 0, 100, 50)
+const diagonalAndVeryClose = rect(105, 55, 205, 105)
+const alignedButFarBelow = rect(0, 400, 100, 450)
+check(
+  'raw score alone would take the diagonal',
+  scoreCandidate(box, diagonalAndVeryClose, 'down') < scoreCandidate(box, alignedButFarBelow, 'down'),
+  true
+)
+check('the overlap test tells them apart', overlapsPerpendicular(box, diagonalAndVeryClose, 'down'), false)
+check('so the aligned one wins', pickBestCandidate(box, [diagonalAndVeryClose, alignedButFarBelow], 'down'), 1)
+check('and a diagonal is still reachable alone', pickBestCandidate(box, [diagonalAndVeryClose], 'down'), 0)
+
+console.log(`\n${passed} passed, ${failed} failed\n`)
+
+process.exit(failed === 0 ? 0 : 1)

@@ -137,6 +137,7 @@ import { loadLocale } from './i18n/index'
 
 import android from 'android'
 import { getUpdateInfo, isTelevision, updateAndroidTheme } from './helpers/android/system'
+import { installSpatialNavigation } from './helpers/android/spatialNavigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -148,6 +149,9 @@ const { locale, t } = useI18n()
  * @type {boolean}
  */
 const isOnTelevision = isTelevision()
+
+/** @type {(() => void) | null} */
+let uninstallSpatialNavigation = null
 
 const tapHighlight = computed(() => store.getters.getTapHighlight)
 
@@ -229,6 +233,10 @@ onMounted(async () => {
         // pointer to fall back on. on a television there isn't, so show them up front
         // rather than waiting for the first d-pad press.
         store.dispatch('showOutlines')
+
+        // a d-pad arrives as arrow keys, whose default action is to scroll. without this
+        // the remote slides the page around instead of moving between controls.
+        uninstallSpatialNavigation = installSpatialNavigation()
       }
     }
 
@@ -256,6 +264,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('dragstart', handleDragStart)
   document.removeEventListener('click', handleClick)
   document.removeEventListener('auxclick', handleAuxClick)
+
+  uninstallSpatialNavigation?.()
+  uninstallSpatialNavigation = null
 })
 
 /** @type {import('vue').ComputedRef<string>} */
