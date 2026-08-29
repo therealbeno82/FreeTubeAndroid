@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banner shown by the Android TV / Google TV launcher.
+
+  The launcher expects a 320x180px xhdpi image, which is 160x90dp. The FreeTube mark is
+  lifted from ic_launcher_foreground (authored against a 64x64 viewport) and scaled up
+  about its own centre, then moved to the middle of the 320x180 canvas.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="160dp"
+  android:height="90dp"
+  android:viewportWidth="320"
+  android:viewportHeight="180">
+
+  <path
+    android:pathData="M0,0 H320 V180 H0 Z"
+    android:fillColor="@color/tv_banner_background" />
+
+  <group
+    android:pivotX="32.24"
+    android:pivotY="32.16"
+    android:scaleX="3.4"
+    android:scaleY="3.4"
+    android:translateX="127.76"
+    android:translateY="57.84">
+
+    <path
+      android:fillColor="#f04242"
+      android:strokeWidth="0.784519"
+      android:pathData="M 18.326366,16.470386 c -1.195215,0 -2.157429,0.999702 -2.157429,2.241485 V 42.24745 c 0,3.362226 4.314857,5.603709 6.472286,5.603709 h 2.157426 V 45.609676 42.24745 18.711871 c 0,-1.241783 -0.962212,-2.241485 -2.157426,-2.241485 z" />
+    <path
+      android:fillColor="#f04242"
+      android:strokeWidth="0.784519"
+      android:pathData="M 27.152207,22.942671 c 0,1.195214 0.994442,2.157428 2.229687,2.157428 h 13.378119 c 3.344529,0 5.574216,-4.314857 5.574216,-6.472284 V 16.470386 H 46.104542 42.760013 29.381894 c -1.235245,0 -2.229687,0.962214 -2.229687,2.157429 z" />
+    <path
+      android:fillColor="#14a4df"
+      android:strokeWidth="0.784519"
+      android:pathData="M 28.188772,27.453898 a 1.0130623,0.89550711 0 0 0 -1.036564,0.896414 v 5.773134 5.773132 a 1.0130623,0.89550711 0 0 0 1.518946,0.774261 l 5.655999,-2.886564 5.656,-2.886568 a 1.0130623,0.89550711 0 0 0 0,-1.550402 l -5.656,-2.886567 -5.655999,-2.886566 a 1.0130623,0.89550711 0 0 0 -0.482382,-0.120274 z" />
+  </group>
+</vector>

@@ -16,6 +16,18 @@ export function getConsoleLogs() {
   return JSON.parse(android.getLogs())
 }
 
+/**
+ * whether the app is running on a television, so that the ui can switch to d-pad
+ * friendly behaviour instead of touch behaviour. always false off android.
+ * @returns {boolean}
+ */
+export function isTelevision() {
+  if (!process.env.IS_ANDROID) {
+    return false
+  }
+  return android.isTelevision()
+}
+
 const REPO_ID = 'MarmadileManteater/FreetubeAndroid'
 
 /**

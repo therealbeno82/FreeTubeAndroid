@@ -136,11 +136,18 @@ import { translateWindowTitle } from './helpers/strings'
 import { loadLocale } from './i18n/index'
 
 import android from 'android'
-import { getUpdateInfo, updateAndroidTheme } from './helpers/android/system'
+import { getUpdateInfo, isTelevision, updateAndroidTheme } from './helpers/android/system'
 
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
+
+/**
+ * Resolved once at startup: whether this is a television, where the user navigates with
+ * a d-pad instead of a pointer. Always false off android.
+ * @type {boolean}
+ */
+const isOnTelevision = isTelevision()
 
 const tapHighlight = computed(() => store.getters.getTapHighlight)
 
@@ -216,6 +223,13 @@ onMounted(async () => {
       }
       window.addEventListener('enabled-light-mode', updateTheme)
       window.addEventListener('enabled-dark-mode', updateTheme)
+
+      if (isOnTelevision) {
+        // outlines are hidden until the user presses a key, which assumes there is a
+        // pointer to fall back on. on a television there isn't, so show them up front
+        // rather than waiting for the first d-pad press.
+        store.dispatch('showOutlines')
+      }
     }
 
     dataReady.value = true
@@ -338,6 +352,19 @@ function openDownloadsPage() {
 const outlinesHidden = computed(() => store.getters.getOutlinesHidden)
 
 /**
+ * Keys that mean the user is navigating without a pointer, so focus outlines have to be
+ * visible. A television remote's d-pad arrives as arrow keys and never sends Tab, which
+ * is why arrows count here and not just Tab.
+ */
+const FOCUS_REVEALING_KEYS = new Set([
+  'Tab',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight'
+])
+
+/**
  * @param {KeyboardEvent} event
  */
 function handleKeyboardShortcuts(event) {
@@ -346,12 +373,19 @@ function handleKeyboardShortcuts(event) {
     store.commit('setIsKeyboardShortcutPromptShown', !isKeyboardShortcutPromptShown.value)
   }
 
-  if (event.key === 'Tab') {
+  if (FOCUS_REVEALING_KEYS.has(event.key)) {
     store.dispatch('showOutlines')
   }
 }
 
 function handleMouseDown() {
+  // there is no pointer on a television, so anything that looks like one is a remote
+  // with a trackpad. hiding the outlines there would leave the user with no way to tell
+  // what is focused.
+  if (isOnTelevision) {
+    return
+  }
+
   store.dispatch('hideOutlines')
 }
 

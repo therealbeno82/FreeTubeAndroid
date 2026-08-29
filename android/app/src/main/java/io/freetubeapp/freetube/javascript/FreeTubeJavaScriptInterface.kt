@@ -12,6 +12,7 @@ import io.freetubeapp.freetube.helpers.Promise
 import io.freetubeapp.freetube.helpers.WriteMode
 import io.freetubeapp.freetube.helpers.getDataDirectory
 import io.freetubeapp.freetube.helpers.getFileName
+import io.freetubeapp.freetube.helpers.isTelevision
 import io.freetubeapp.freetube.helpers.readBytes
 import io.freetubeapp.freetube.helpers.readText
 import io.freetubeapp.freetube.helpers.resolveAmbiguousUri
@@ -373,6 +374,15 @@ class FreeTubeJavaScriptInterface(
     } else {
       "light"
     }
+  }
+
+  /**
+   * whether the app is running on a television, so that the renderer can switch to
+   * d-pad friendly behaviour instead of touch behaviour
+   */
+  @JavascriptInterface
+  fun isTelevision(): Boolean {
+    return context.isTelevision()
   }
 
   @JavascriptInterface

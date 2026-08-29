@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.Intent.EXTRA_KEY_EVENT
+import android.content.pm.PackageManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState.STATE_PLAYING
 import android.os.Build
@@ -206,4 +207,15 @@ fun Context.resolveAmbiguousUri(givenUri: String): DocumentFile? {
   } else {
     DocumentFile.fromSingleUri(this, givenUri.toUri())
   }
+}
+
+/**
+ * whether this app is running on a television
+ *
+ * checks the leanback system feature first, because some tv devices (and most emulators
+ * running a tv image) report the feature without setting the ui mode
+ */
+fun Context.isTelevision(): Boolean {
+  return packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+    resources.configuration.isTelevision()
 }

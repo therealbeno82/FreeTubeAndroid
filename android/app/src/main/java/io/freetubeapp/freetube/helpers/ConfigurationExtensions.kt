@@ -15,3 +15,7 @@ fun Configuration.isDarkMode(): Boolean {
     }
   }
 }
+
+fun Configuration.isTelevision(): Boolean {
+  return (uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+}

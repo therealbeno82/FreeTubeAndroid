@@ -2,4 +2,6 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- ground for the android tv launcher banner -->
+    <color name="tv_banner_background">#FF1B1B1B</color>
 </resources>
