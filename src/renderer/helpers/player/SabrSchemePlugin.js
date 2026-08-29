@@ -55,6 +55,13 @@ const ShakaError = shaka.util.Error
  * @property {number} cumulativeBackOffTimeMs
  * @property {number} cumulativeBackOffRequested
  * @property {number} cumulativeRetryDueToNextRequestPolicy
+ * @property {number} cumulativeInvalidPoToken
+ */
+/**
+ * @typedef ActiveBackoff
+ * @type {object}
+ * @property {Promise<void>} promise
+ * @property {number} endTimeMs
  */
 /**
  * @typedef SabrStreamState
@@ -63,6 +70,7 @@ const ShakaError = shaka.util.Error
  * @property {Set<number>} activeSabrContextTypes
  * @property {Map<number, SabrContextUpdate>} sabrContexts
  * @property {?NextRequestPolicy} nextRequestPolicy
+ * @property {?ActiveBackoff} activeBackoff
  * @property {boolean} playerReloadRequested
  * @property {number} requestNumber
  */
@@ -279,6 +287,65 @@ function createTimeoutController(callback, timeoutMs) {
 }
 
 /**
+ * Starts the backoff delay that the server asked for, unless one is already running.
+ *
+ * The backoff applies to the requests made while it is running, not to every request for the rest
+ * of the session, so it is tracked separately from `nextRequestPolicy` (which sticks around until
+ * the server sends a new one) and cleared once it has elapsed.
+ *
+ * It is shared by all in-flight requests, as the audio and video requests run in parallel and the
+ * server expects both of them to hold off, not just whichever one happened to get here first.
+ * @param {SabrStreamState} sabrStreamState
+ * @param {number} backoffTimeMs
+ */
+function startBackoff(sabrStreamState, backoffTimeMs) {
+  if (!(backoffTimeMs > 0) || sabrStreamState.activeBackoff) {
+    return
+  }
+
+  /** @type {ActiveBackoff} */
+  const activeBackoff = {
+    endTimeMs: Date.now() + backoffTimeMs,
+    promise: new Promise((resolve) => {
+      setTimeout(() => {
+        // a player reload replaces the whole state, so only clear it if it's still the active one
+        if (sabrStreamState.activeBackoff === activeBackoff) {
+          sabrStreamState.activeBackoff = null
+        }
+
+        resolve()
+      }, backoffTimeMs)
+    })
+  }
+
+  sabrStreamState.activeBackoff = activeBackoff
+}
+
+/**
+ * Waits for the given backoff to elapse. Rejects instead if the request gets aborted while waiting.
+ * @param {ActiveBackoff} activeBackoff
+ * @param {AbortSignal} abortSignal
+ */
+function waitForBackoff(activeBackoff, abortSignal) {
+  return new Promise((resolve, reject) => {
+    // adding the listener to an already aborted signal never fires it
+    if (abortSignal.aborted) {
+      reject(abortSignal.reason)
+      return
+    }
+
+    const abortListener = () => reject(abortSignal.reason)
+
+    abortSignal.addEventListener('abort', abortListener, { once: true })
+
+    activeBackoff.promise.then(() => {
+      abortSignal.removeEventListener('abort', abortListener)
+      resolve()
+    })
+  })
+}
+
+/**
  * @param {OperationInputs} operationInputs - readonly
  * @param {CurrentState} currentState - can be updated
  */
@@ -305,24 +372,22 @@ async function doRequest(
 
   try {
     let shouldReloadDueToBackoffLoop = false
-    if ((currentState.sabrStreamState.nextRequestPolicy?.backoffTimeMs || 0) > 0) {
-      const currentBackoffTimeMs = currentState.sabrStreamState.nextRequestPolicy.backoffTimeMs
+    const activeBackoff = currentState.sabrStreamState.activeBackoff
+    const currentBackoffTimeMs = activeBackoff ? activeBackoff.endTimeMs - Date.now() : 0
+    if (currentBackoffTimeMs > 0) {
       currentState.eventEmitter.emit('backoff-requested', { backoffMs: currentBackoffTimeMs })
       // Wait but can be aborted
-      await new Promise((resolve, reject) => {
-        setTimeout(resolve, currentBackoffTimeMs)
-        currentState.abortController.signal.addEventListener('abort', reject)
-      })
+      await waitForBackoff(activeBackoff, currentState.abortController.signal)
       // Must reset AFTER waiting to avoid requested aborted
       // Since long backoff time mostly happens on the start of video playback we only reset timeout once
       // i.e. backoff time parts received will not reset timeout - counted as video loading issue
       currentState.timeoutController?.resetTimeoutOnce()
 
-      currentState.cumulativeBackOffTimeMs += currentState.sabrStreamState.nextRequestPolicy.backoffTimeMs
+      currentState.cumulativeBackOffTimeMs += currentBackoffTimeMs
       currentState.cumulativeBackOffRequested += 1
       const timeoutMs = operationInputs.request.retryParameters.timeout
       // Detect infinite backoff loop by no. of times requested and cumulative time approaching timeout
-      if (currentState.cumulativeBackOffRequested >= 3 || (timeoutMs > 0 && timeoutMs <= (currentState.cumulativeBackOffTimeMs + currentBackoffTimeMs))) {
+      if (currentState.cumulativeBackOffRequested >= 3 || (timeoutMs > 0 && timeoutMs <= currentState.cumulativeBackOffTimeMs)) {
         shouldReloadDueToBackoffLoop = true
       }
     }
@@ -360,6 +425,8 @@ async function doRequest(
             const streamProtectionStatus = decodePart(part, StreamProtectionStatus)
             if (streamProtectionStatus.status === 3) {
               invalidPoToken = true
+              currentState.cumulativeInvalidPoToken += 1
+              console.warn(`SABR: the server rejected the PO token (attempt ${currentState.cumulativeInvalidPoToken})`)
             }
             break
           }
@@ -372,9 +439,10 @@ async function doRequest(
           }
           case UMPPartId.SABR_REDIRECT: {
             const sabrRedirect = decodePart(part, SabrRedirect)
-            if (!sabrRedirect) break
+            if (!sabrRedirect?.url) break
 
-            currentState.sabrUrl = sabrRedirect.url
+            // must be stored on the stream state, that's where the next request reads the URL from
+            currentState.sabrStreamState.sabrUrl = sabrRedirect.url
             shouldRetry = true
             break
           }
@@ -422,6 +490,8 @@ async function doRequest(
             currentState.abrRequest.streamerContext.playbackCookie = nextRequestPolicy?.playbackCookie ? PlaybackCookie.encode(nextRequestPolicy.playbackCookie).finish() : undefined
 
             currentState.abrRequest.streamerContext.backoffTimeMs = nextRequestPolicy?.backoffTimeMs
+
+            startBackoff(currentState.sabrStreamState, nextRequestPolicy?.backoffTimeMs || 0)
             break
           }
           case UMPPartId.FORMAT_INITIALIZATION_METADATA: {
@@ -514,6 +584,11 @@ async function doRequest(
     throw createRecoverableNetworkError(ShakaError.Code.TIMEOUT, operationInputs.uri, operationInputs.requestType)
   }
 
+  // A retry re-sends the same PO token, so if the server keeps rejecting it, retrying won't ever help
+  // and would silently loop instead of surfacing the failure. One retry is still allowed, as the server
+  // can ask for re-attestation through a SABR context update in the same response.
+  const poTokenRejected = invalidPoToken && currentState.cumulativeInvalidPoToken > 1
+
   if (responseDataChunks.length > 0 && segmentComplete) {
     const data = /** @__NOINLINE__ */ concatenateChunks(responseDataChunks)
 
@@ -531,7 +606,7 @@ async function doRequest(
       fromCache: false,
       originalRequest: operationInputs.request,
     }
-  } else if (shouldRetry) {
+  } else if (shouldRetry && !poTokenRejected) {
     if (shouldRetryDueToNextRequestPolicy) {
       // Only count on actual retry to avoid counting false positive (when segmentComplete
       currentState.cumulativeRetryDueToNextRequestPolicy += 1
@@ -643,6 +718,7 @@ export function setupSabrScheme(sabrData, getPlayer, getManifest, playerWidth, p
     activeSabrContextTypes: new Set(),
     sabrContexts: new Map(),
     nextRequestPolicy: undefined,
+    activeBackoff: null,
     playerReloadRequested: false,
     requestNumber: 0,
   }
@@ -829,6 +905,7 @@ export function setupSabrScheme(sabrData, getPlayer, getManifest, playerWidth, p
       cumulativeBackOffTimeMs: 0,
       cumulativeBackOffRequested: 0,
       cumulativeRetryDueToNextRequestPolicy: 0,
+      cumulativeInvalidPoToken: 0,
     }
 
     const pendingRequest = doRequest(opInputs, currentState)

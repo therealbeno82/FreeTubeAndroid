@@ -2025,6 +2025,10 @@ export default defineComponent({
             path: this.$route.path,
             query: { ...this.$route.query, oneTimeTimestamp: timestamp },
           })
+
+          // The route change already triggers `reloadView` through the `$route` watcher,
+          // calling it here as well would run two reloads at the same time
+          return
         } catch (failure) {
           if (isNavigationFailure(failure, NavigationFailureType.duplicated)) {
             // Already on route with same timestamp, allow reloadView to run instead
