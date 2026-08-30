@@ -119,10 +119,16 @@ class FreeTubeJavaScriptInterface(
   @JavascriptInterface
   fun listFilesInTree(tree: String): String {
     val directory = DocumentFile.fromTreeUri(context, tree.toUri())
-    val files = directory?.listFiles()?.joinToString(",") { file ->
-      "{ \"uri\": \"${file.uri}\", \"fileName\": \"${file.name}\", \"isFile\": ${file.isFile}, \"isDirectory\": ${file.isDirectory} }"
+    val array = org.json.JSONArray()
+    directory?.listFiles()?.forEach { file ->
+      val obj = JSONObject()
+      obj.put("uri", file.uri.toString())
+      obj.put("fileName", file.name)
+      obj.put("isFile", file.isFile)
+      obj.put("isDirectory", file.isDirectory)
+      array.put(obj)
     }
-    return "[${files ?: ""}]"
+    return array.toString()
   }
 
   @JavascriptInterface
@@ -139,11 +145,16 @@ class FreeTubeJavaScriptInterface(
     return if (directory == null) {
       "[]"
     } else {
-      "[${
-        File(directory).listFiles()?.joinToString(",") { file ->
-          "{ \"uri\": \"$DATA_DIRECTORY${file.name}\", \"fileName\": \"${file.name}\", \"isFile\": ${file.isFile}, \"isDirectory\": ${file.isDirectory} }"
-        } ?: ""
-      }]"
+      val array = org.json.JSONArray()
+      File(directory).listFiles()?.forEach { file ->
+        val obj = JSONObject()
+        obj.put("uri", "$DATA_DIRECTORY${file.name}")
+        obj.put("fileName", file.name)
+        obj.put("isFile", file.isFile)
+        obj.put("isDirectory", file.isDirectory)
+        array.put(obj)
+      }
+      return array.toString()
     }
   }
 
@@ -233,6 +244,7 @@ class FreeTubeJavaScriptInterface(
       ).then {
         if (it?.resultCode == Activity.RESULT_CANCELED) {
           resolve("USER_CANCELED")
+          return@then
         }
         try {
           val payload = JSONObject()
@@ -255,6 +267,7 @@ class FreeTubeJavaScriptInterface(
       ).then {
         if (it?.resultCode == Activity.RESULT_CANCELED) {
           resolve("USER_CANCELED")
+          return@then
         }
         try {
           val uri = it?.data?.data
@@ -284,6 +297,7 @@ class FreeTubeJavaScriptInterface(
       ).then {
         if (it?.resultCode == Activity.RESULT_CANCELED) {
           resolve("USER_CANCELED")
+          return@then
         }
         try {
           val uri = it?.data?.data

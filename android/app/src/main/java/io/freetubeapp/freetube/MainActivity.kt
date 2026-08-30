@@ -33,16 +33,23 @@ class MainActivity: FreeTubeActivity() {
 
     ActivityMainBinding.inflate(layoutInflater).apply {
       setContentView(root)
-      root.viewTreeObserver.addOnPreDrawListener {
-        // Check whether the initial data is ready.
-        if (!state.showSplashScreen) {
-          // The content is ready. Start drawing.
-          true
-        } else {
-          // The content isn't ready. Suspend.
-          false
+      val viewTreeObserver = root.viewTreeObserver
+      viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+        override fun onPreDraw(): Boolean {
+          return if (!state.showSplashScreen) {
+            // Content is ready. Remove listener and start drawing.
+            if (viewTreeObserver.isAlive) {
+              viewTreeObserver.removeOnPreDrawListener(this)
+            } else {
+              root.viewTreeObserver.removeOnPreDrawListener(this)
+            }
+            true
+          } else {
+            // Content isn't ready. Suspend.
+            false
+          }
         }
-      }
+      })
       root.addView(webView)
     }
 
@@ -87,6 +94,12 @@ class MainActivity: FreeTubeActivity() {
   }
 
   override fun onBack() {
+    // On TV, fullscreen has no on-screen close button — back is the way out.
+    // Handle it before prompt/history so a remote can leave the player.
+    if (webView.isInFullscreen()) {
+      webView.exitFullscreen()
+      return
+    }
     // bind the back button to the web-view history
     if (state.isInAPrompt) {
       webView.dispatchEvent("exit-prompt")

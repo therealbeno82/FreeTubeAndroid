@@ -112,7 +112,7 @@ fun Context.getAction(icon: Int, label: String, action: String): Notification.Ac
     icon,
     label,
     PendingIntent.getBroadcast(
-      this, 1,
+      this, action.hashCode(),
       getMediaControlsIntent(action),
       PendingIntent.FLAG_IMMUTABLE
     )
@@ -174,7 +174,7 @@ fun Context.createNotification(session: MediaSession, channelId: String, state: 
     .setContentIntent(
       PendingIntent.getActivity(
         this,
-        1,
+        100,
         Intent(Intent.ACTION_MAIN)
           .addCategory(Intent.CATEGORY_LAUNCHER)
           .setClass(this,  MainActivity::class.java),
@@ -184,7 +184,7 @@ fun Context.createNotification(session: MediaSession, channelId: String, state: 
     .setDeleteIntent(
       PendingIntent.getBroadcast(
         this,
-        1,
+        101,
         getMediaControlsIntent( "pause"),
         PendingIntent.FLAG_IMMUTABLE
       )
@@ -201,9 +201,10 @@ fun Context.getDataDirectory(): String? {
 }
 
 fun Context.resolveAmbiguousUri(givenUri: String): DocumentFile? {
-  return  if (givenUri.startsWith("data://")) {
-    val path = givenUri.split("data://")[1]
-    DocumentFile.fromFile(File(getDataDirectory(), path))
+  return if (givenUri.startsWith("data://")) {
+    val path = givenUri.removePrefix("data://")
+    val dataDir = getDataDirectory() ?: return null
+    DocumentFile.fromFile(File(dataDir, path))
   } else {
     DocumentFile.fromSingleUri(this, givenUri.toUri())
   }

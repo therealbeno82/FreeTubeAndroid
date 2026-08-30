@@ -4,7 +4,7 @@ import android.webkit.WebView
 
 class AsyncJSCommunicator(givenWebView: WebView) {
   private val webView = givenWebView
-  private var syncMessages: MutableMap<String, String> = HashMap()
+  private var syncMessages: MutableMap<String, String> = java.util.concurrent.ConcurrentHashMap()
 
   /**
    * resolves a js promise given the id

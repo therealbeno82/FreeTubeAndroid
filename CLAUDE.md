@@ -90,6 +90,14 @@ player's volume binding costs nothing: a remote's volume buttons are handled by 
 and never reach the app. Chrome draws no focus ring for programmatic focus on a
 `tabindex="-1"` element, hence the explicit `.ftVideoPlayer:focus` rule.
 
+On a television the player also auto-enters fullscreen as soon as the video loads
+(`Watch.js` forces `startInFullscreen` when `isTelevision()` is true, and
+`ft-shaka-video-player.js` calls `controls.toggleFullScreen()`; `MainActivity.kt`
+intercepts the system Back button to call `FreeTubeWebView.exitFullscreen()`).
+That covers the missing on-screen fullscreen button — a remote never had a way to
+reach it via spatial navigation. If the Fullscreen API is blocked (requires a user
+gesture on some WebViews) the player falls back to `fullWindow`.
+
 Candidates are collected from `document.fullscreenElement` when there is one, so focus
 cannot escape to elements that are not on screen.
 
@@ -97,9 +105,27 @@ cannot escape to elements that are not on screen.
 
 - UI needs adjustment for the ten-foot viewing distance — `uiScaleAndroid` already exists
   as a setting wired to `android.setScale()` and could take a television-specific default.
-- No fullscreen exit via d-pad. Shaka listens for Escape, which a remote does not send.
-- Horizontal keys cannot navigate out of the player, since they seek. Down-then-right works.
+- Horizontal keys cannot navigate out of the player, since they seek. Down-then-right works
+  (inside fullscreen, Up still leaves the player; Back leaves fullscreen).
 - No overscan / safe-area padding.
+
+## Fixes applied (2026-08-31)
+
+Applied from the review at https://claude.ai/code/artifact/0d76c1e4-d8c3-4cbc-8802-49a566943e76 — crash / data-loss / ANR fixes, plus the TV windowed-playback fix requested after testing (2026-08-31):
+
+- `android/app/build.gradle.kts:35` `versionCode` now `major*10000000 + minor*100000 + patch*1000` (was `minor*10000000`, so `0.25.2` and `1.24.2` collided).
+- `helpers/android/utils.js:97` `versionNumberGt()` strips leading `v` before split, so `v0.25.2` comparisons work.
+- `android/app/src/main/java/io/freetubeapp/freetube/KeepAliveService.kt:17` `onBind` returns `null` instead of `TODO()` (was `NotImplementedError` on bind).
+- `android/app/src/main/java/io/freetubeapp/freetube/helpers/ContentResolverExtensions.kt:12` `readBytes`/`writeBytes` use `use {}` so streams close on exception.
+- `android/app/src/main/java/io/freetubeapp/freetube/javascript/AsyncJSCommunicator.kt:7` `HashMap` → `ConcurrentHashMap` (JavaBridge vs WebView thread race).
+- `android/app/src/main/java/io/freetubeapp/freetube/helpers/ContextExtensions.kt:114` `PendingIntent` requestCode `1` for all actions → `action.hashCode()` / `100`/`101`, fixes OEM collision where every media button fired the same intent. `resolveAmbiguousUri` now handles `data://` via `removePrefix` and null `getDataDirectory()`.
+- `android/app/src/main/java/io/freetubeapp/freetube/MainActivity.kt:36` `addOnPreDrawListener` now removes itself once splash is hidden (was called every frame).
+- `android/app/src/main/java/io/freetubeapp/freetube/MediaControlsReceiver.kt:9` `lateinit var notifyMediaSessionListeners` → nullable `var` with safe `?.invoke` (early broadcast no longer crashes).
+- `android/app/src/main/java/io/freetubeapp/freetube/webviews/FreeTubeWebView.kt:63` `youtube_regex` cached per-WebView and `startActivity(Intent.VIEW)` wrapped in try/catch.
+- `android/app/src/main/java/io/freetubeapp/freetube/javascript/FreeTubeJavaScriptInterface.kt:121,137` `listFilesInTree`/`listFilesInDataDir` build JSON via `JSONArray/JSONObject` instead of string interpolation (fixes `"` in filenames). Dialog helpers `requestSaveDialog:233`, `requestOpenDialog:255`, `requestDirectoryAccessDialog:284` `return@then` after `USER_CANCELED` to avoid double `resolve()`.
+- `src/renderer/helpers/android/storage.js:44` TDZ `ReferenceError` on `writeFile` error path fixed (`key` declared before use, guarded delete); `storage.js:185` `updateFilesInCurrentDataDirectory` writes `directory:` not `uri:` so restart reloads the SAF grant.
+- `src/renderer/helpers/android/nedb.js:131` missing `return` on `unlinkAsync`/`mkdirAsync`/`ensureParentDirectoryExistsAsync`/`ensureDatafileIntegrityAsync` added; `crashSafeWriteFileLinesAsync:170` clones `lines` before appending.
+- `src/renderer/views/Watch/Watch.js:523` forces `startInFullscreen` when `isTelevision()` is true (first load and route change) — windowed playback unusable with a remote. `src/renderer/components/ft-shaka-video-player/ft-shaka-video-player.js:3096` handles `startInFullscreen` on `IS_ANDROID` + TV via `controls.toggleFullScreen()` with `fullWindow` fallback; `MainActivity.kt:96` intercepts Back to `FreeTubeWebView.exitFullscreen()`; `FreeTubeWebView.kt:40` tracks `fullscreenView`/`fullscreenCallback` correctly and exposes `isInFullscreen`/`exitFullscreen`.
 
 ## Pre-existing issues
 
@@ -108,10 +134,6 @@ Not introduced by the television work — do not be alarmed by them:
 - `pnpm run lint` **fails on a clean checkout**: an `eqeqeq` error in
   `ft-shaka-video-player.js` and an unused `marked` import in `App.vue`. Unnoticed because
   `testAndroid.yml` runs lint with `continue-on-error: true`.
-- `versionCode` in `android/app/build.gradle.kts` multiplies major and minor by the same
-  factor, so `0.25.2` and `1.24.2` both produce `250002000`.
-- `versionNumberGt()` returns false for tags prefixed with `v`, so the in-app update check
-  can silently never fire.
 
 A fuller review of the codebase (19 findings across the bridge, storage and release
 pipeline) is at https://claude.ai/code/artifact/0d76c1e4-d8c3-4cbc-8802-49a566943e76

@@ -3093,9 +3093,28 @@ export default defineComponent({
         createChapterMarkers()
       }
 
-      if (startInFullscreen && process.env.IS_ELECTRON) {
+      if (startInFullscreen) {
         startInFullscreen = false
-        window.ftElectron.requestFullscreen()
+        if (process.env.IS_ELECTRON) {
+          window.ftElectron.requestFullscreen()
+        } else if (process.env.IS_ANDROID && isOnTelevision) {
+          try {
+            const controls = ui.getControls()
+            if (controls && typeof controls.toggleFullScreen === 'function') {
+              controls.toggleFullScreen()
+            } else if (container.value.requestFullscreen) {
+              await container.value.requestFullscreen()
+            } else if (video.value.requestFullscreen) {
+              await video.value.requestFullscreen()
+            }
+            // Give the remote a focused target — the container is the single TV
+            // navigation destination and Enter on it toggles play/pause.
+            nextTick(() => container.value?.focus({ preventScroll: true }))
+          } catch (e) {
+            console.warn('TV auto-fullscreen failed, falling back to fullWindow', e)
+            fullWindowEnabled.value = true
+          }
+        }
       }
     }
 

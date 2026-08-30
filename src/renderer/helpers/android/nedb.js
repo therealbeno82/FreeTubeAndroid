@@ -128,7 +128,7 @@ export async function readFileAsync(filename, options) {
  * @async
  * @alias module:storageBrowser.unlink
  */
-export async function unlinkAsync(filename) { Promise.resolve() }
+export async function unlinkAsync(filename) { return Promise.resolve() }
 
 /**
  * Shim for {@link module:storage.mkdirAsync}, nothing to do, no directories will be used on the browser.
@@ -139,7 +139,7 @@ export async function unlinkAsync(filename) { Promise.resolve() }
  * @alias module:storageBrowser.mkdirAsync
  * @async
  */
-export async function mkdirAsync(path, options) { Promise.resolve() }
+export async function mkdirAsync(path, options) { return Promise.resolve() }
 
 /**
  * Shim for {@link module:storage.ensureParentDirectoryExistsAsync}, nothing to do, no directories will be used on the browser.
@@ -150,7 +150,7 @@ export async function mkdirAsync(path, options) { Promise.resolve() }
  * @alias module:storageBrowser.ensureParentDirectoryExistsAsync
  * @async
  */
-export async function ensureParentDirectoryExistsAsync(file, mode) { Promise.resolve() }
+export async function ensureParentDirectoryExistsAsync(file, mode) { return Promise.resolve() }
 
 /**
  * Shim for {@link module:storage.ensureDatafileIntegrityAsync}, nothing to do, no data corruption possible in the browser.
@@ -158,7 +158,7 @@ export async function ensureParentDirectoryExistsAsync(file, mode) { Promise.res
  * @return {Promise<void>}
  * @alias module:storageBrowser.ensureDatafileIntegrityAsync
  */
-export async function ensureDatafileIntegrityAsync(filename) { Promise.resolve() }
+export async function ensureDatafileIntegrityAsync(filename) { return Promise.resolve() }
 
 /**
  * Fully write or rewrite the datafile, immune to crashes during the write operation (data will not be lost)
@@ -168,6 +168,6 @@ export async function ensureDatafileIntegrityAsync(filename) { Promise.resolve()
  * @alias module:storageBrowser.crashSafeWriteFileLinesAsync
  */
 export async function crashSafeWriteFileLinesAsync(filename, lines) {
-  lines.push('') // Add final new line
-  await writeFileAsync(filename, lines.join('\n'))
+  const linesCopy = [...lines, ''] // Add final new line without mutating caller array
+  await writeFileAsync(filename, linesCopy.join('\n'))
 }

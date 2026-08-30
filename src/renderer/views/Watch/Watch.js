@@ -58,6 +58,7 @@ import { useI18n } from 'vue-i18n'
 import {
   createMediaSession
 } from '../../helpers/android/media-session'
+import { isTelevision } from '../../helpers/android/system'
 import android from 'android'
 
 const MANIFEST_TYPE_DASH = 'application/dash+xml'
@@ -520,6 +521,12 @@ export default defineComponent({
     },
 
     setViewingModeOnFirstLoad: function () {
+      // On Android TV, always start in fullscreen — remote has no way to reach the
+      // inline fullscreen button, and windowed playback is too small at TV distance.
+      if (isTelevision()) {
+        this.startNextVideoInFullscreen = true
+        return
+      }
       switch (this.defaultViewingMode) {
         case 'theatre':
           this.useTheatreMode = this.theatrePossible
@@ -538,6 +545,10 @@ export default defineComponent({
     },
 
     setViewingModeOnRouteChange: function () {
+      if (isTelevision()) {
+        this.startNextVideoInFullscreen = true
+        return
+      }
       switch (this.defaultViewingMode) {
         case 'fullscreen_always_on':
           this.startNextVideoInFullscreen = true

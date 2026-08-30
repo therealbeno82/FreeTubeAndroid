@@ -37,6 +37,23 @@ class FreeTubeWebView (
     dispatchEvent("console-message", "data", messageData)
   }
 
+  private var fullscreenView: View? = null
+  private var fullscreenCallback: CustomViewCallback? = null
+
+  fun isInFullscreen(): Boolean = fullscreenView != null
+
+  fun exitFullscreen() {
+    if (fullscreenView != null) {
+      evaluateJavascript("try{if(document.fullscreenElement){document.exitFullscreen()}}catch(e){}") {}
+      // Force native removal if JS didn't trigger the chrome callback
+      if (fullscreenView != null) {
+        try {
+          webChromeClient.onHideCustomView()
+        } catch (_: Exception) {}
+      }
+    }
+  }
+
   init {
     spoofDesktopUserAgent()
     layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
@@ -60,28 +77,31 @@ class FreeTubeWebView (
         context.state.currentPage = url
         super.onPageFinished(view, url)
       }
+      private val youtubeRegex = Regex(context.getString(R.string.youtube_regex))
+
       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         if (request?.url?.scheme == "file") {
           // don't send file url requests to a web browser (it will crash the app)
           return true
         }
 
-        val regex = context.getString(R.string.youtube_regex)
-
         val urlString = request?.url?.toString()
-        if (urlString != null && Regex(regex).containsMatchIn(urlString)) {
+        if (urlString != null && youtubeRegex.containsMatchIn(urlString)) {
           dispatchEvent("youtube-link", "link", urlString)
           return true
         }
         // send all requests to a real web browser
-        context.startActivity(
-          Intent(Intent.ACTION_VIEW, request?.url)
-        )
+        try {
+          context.startActivity(
+            Intent(Intent.ACTION_VIEW, request?.url)
+          )
+        } catch (_: Exception) {
+          // no browser installed or unable to handle intent
+        }
         return true
       }
     }
 
-    var fullscreenView: View? = null
     webChromeClient = object: ConsoleLogChromeClient({ message ->
       onConsoleMessage(message)
     }) {
@@ -97,11 +117,13 @@ class FreeTubeWebView (
 
           viewGroup.addView(view)
           fullscreenView = view
+          fullscreenCallback = callback
           dispatchEvent("start-fullscreen")
         }
       }
 
       override fun onHideCustomView() {
+        if (fullscreenView == null) return
         val viewGroup = (parent as ViewGroup)
 
         // show system ui
@@ -109,6 +131,9 @@ class FreeTubeWebView (
         windowInsetsControllerWrapper.show(WindowInsetsCompat.Type.systemBars())
 
         viewGroup.removeView(fullscreenView)
+        fullscreenView = null
+        fullscreenCallback?.onCustomViewHidden()
+        fullscreenCallback = null
         dispatchEvent("end-fullscreen")
       }
     }

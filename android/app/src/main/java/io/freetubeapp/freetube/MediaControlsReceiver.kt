@@ -7,13 +7,17 @@ import android.content.Intent
 open class MediaControlsReceiver : BroadcastReceiver() {
 
   companion object Static {
-    lateinit var notifyMediaSessionListeners: (String) -> Unit
+    var notifyMediaSessionListeners: ((String) -> Unit)? = null
   }
 
   override fun onReceive(context: Context?, intent: Intent?) {
     val action = intent?.action
     if (action != null) {
-      notifyMediaSessionListeners(action)
+      try {
+        notifyMediaSessionListeners?.invoke(action)
+      } catch (_: Exception) {
+        // listener not yet initialized or already torn down
+      }
     }
   }
 }

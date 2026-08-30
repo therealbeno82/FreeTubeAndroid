@@ -43,11 +43,13 @@ export async function writeFile(uri, content, append = false) {
     return true
   } catch (exception) {
     console.error(exception)
-    console.warn(`Removing ${key} from known files since it errored!`)
     const directory = await getCurrentDataDirectory()
     const key = reverseObject(directory.files)[uri]
-    delete directory.files[key]
-    await updateFilesInCurrentDataDirectory(directory.files)
+    console.warn(`Removing ${key} from known files since it errored!`)
+    if (key !== undefined) {
+      delete directory.files[key]
+      await updateFilesInCurrentDataDirectory(directory.files)
+    }
     return false
   }
 }
@@ -182,7 +184,7 @@ export async function getCurrentDataDirectory() {
 export async function updateFilesInCurrentDataDirectory(files) {
   currentDataDirectory.files = files
   await writeFile(DATA_LOCATION, JSON.stringify({
-    uri: currentDataDirectory.uri,
+    directory: currentDataDirectory.uri,
     files: filesToEntries(currentDataDirectory.files)
   }, null, 2))
 }

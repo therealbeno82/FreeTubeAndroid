@@ -94,8 +94,8 @@ export function reverseObject(object) {
 }
 
 export function versionNumberGt(versionA, versionB) {
-  const partsA = `${versionA}`.split('.')
-  const partsB = `${versionB}`.split('.')
+  const partsA = `${versionA}`.replace(/^v/i, '').split('.')
+  const partsB = `${versionB}`.replace(/^v/i, '').split('.')
   if (partsA.length > partsB.length) {
     return true
   } else if (partsB.length > partsA.length) {

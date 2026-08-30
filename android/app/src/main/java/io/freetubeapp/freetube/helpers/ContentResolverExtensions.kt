@@ -10,25 +10,18 @@ enum class WriteMode {
 }
 
 fun ContentResolver.readBytes(uri: Uri): ByteArray? {
-  val stream = openInputStream(uri)
-  val content = stream?.readBytes()
-  stream?.close()
-  return content
+  return openInputStream(uri)?.use { it.readBytes() }
 }
 
 fun ContentResolver.writeBytes(uri: Uri, bytes: ByteArray, writeMode: WriteMode = WriteMode.Truncate) {
   val mode = when (writeMode) {
-      WriteMode.Truncate -> {
-        "wt"
-      }
-      WriteMode.Append -> {
-        "wa"
-      }
+      WriteMode.Truncate -> "wt"
+      WriteMode.Append -> "wa"
   }
-  val stream = openOutputStream(uri, mode)
-  stream?.write(bytes)
-  stream?.flush()
-  stream?.close()
+  openOutputStream(uri, mode)?.use { stream ->
+    stream.write(bytes)
+    stream.flush()
+  }
 }
 
 fun ContentResolver.getFileName(uri: Uri): String {
