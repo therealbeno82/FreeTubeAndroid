@@ -39,10 +39,6 @@ async function handleDialogResponse(promiseId) {
     }
   } else {
     response = JSON.parse(response)
-    let typedUri = response?.uri
-    if (response?.type in FILE_TYPES) {
-      typedUri = `${typedUri}.${FILE_TYPES[response?.type]}`
-    }
     return {
       canceled: false,
       type: 'SUCCESS',

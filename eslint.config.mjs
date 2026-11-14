@@ -261,7 +261,11 @@ export default defineConfig([
 
     settings: {
       'vue-i18n': {
-        localeDir: `./static/locales/{${activeLocales.join(',')}}.yaml`,
+        localeDir: [
+          `./static/locales/{${activeLocales.join(',')}}.yaml`,
+          // strings that only the android build has
+          './static/locales-android/en-US.yaml',
+        ],
         messageSyntaxVersion: '^11.0.0',
       },
     },

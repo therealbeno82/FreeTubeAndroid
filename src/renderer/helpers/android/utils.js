@@ -75,12 +75,18 @@ export async function blobToBase64(blob) {
 }
 
 export function isColourDark(colour) {
+  colour = `${colour}`.trim()
   if (colour.length < 7) {
     const char = colour.substring(1, 2)
     colour = `${colour.substring(0, 1)}${char}${char}${char}${char}${char}${char}`
   }
-  const diffFromWhite = Math.abs(parseInt('FFFFFF', 16) - parseInt(colour.substring(1, colour.length), 16))
-  const diffFromBlack = Math.abs(parseInt('000000', 16) - parseInt(colour.substring(1, colour.length), 16))
+  const hex = colour.substring(1, colour.length)
+  const asInt = parseInt(hex, 16)
+  if (Number.isNaN(asInt)) {
+    return true
+  }
+  const diffFromWhite = Math.abs(parseInt('FFFFFF', 16) - asInt)
+  const diffFromBlack = Math.abs(parseInt('000000', 16) - asInt)
   return diffFromBlack > diffFromWhite
 }
 
@@ -94,26 +100,18 @@ export function reverseObject(object) {
 }
 
 export function versionNumberGt(versionA, versionB) {
-  const partsA = `${versionA}`.replace(/^v/i, '').split('.')
-  const partsB = `${versionB}`.replace(/^v/i, '').split('.')
-  if (partsA.length > partsB.length) {
-    return true
-  } else if (partsB.length > partsA.length) {
-    return false
-  } else {
-    const partComparisons = partsA.map(a => false)
-    let oneLeftmostLt = false
-    let oneGt = false
-    for (let i = 0; i < partsA.length; i++) {
-      partComparisons[i] = parseInt(partsA[i]) === parseInt(partsB[i]) ? 'eq' : parseInt(partsA[i]) > parseInt(partsB[i]) ? 'gt' : 'lt'
-      if (partComparisons[i] === 'gt') {
-        oneGt = true
-      }
-      if (partComparisons[i] === 'lt' && !oneGt) {
-        oneLeftmostLt = true
-      }
+  const partsA = `${versionA}`.replace(/^v/i, '').split('.').map(part => parseInt(part, 10) || 0)
+  const partsB = `${versionB}`.replace(/^v/i, '').split('.').map(part => parseInt(part, 10) || 0)
+  const len = Math.max(partsA.length, partsB.length)
+  for (let i = 0; i < len; i++) {
+    const a = partsA[i] || 0
+    const b = partsB[i] || 0
+    if (a > b) {
+      return true
     }
-    const thereIsAGtBeforeALt = !oneLeftmostLt
-    return oneGt && thereIsAGtBeforeALt
+    if (a < b) {
+      return false
+    }
   }
+  return false
 }

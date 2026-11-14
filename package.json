@@ -51,6 +51,8 @@
     "pack:android:dev:core": "webpack --mode=development --config-node-env=development --config _scripts/webpack.android.config.js",
     "pack:android": "pnpm run \"/^pack:(botGuardScript:android|android:core)$/\"",
     "pack:android:dev": "pnpm run \"/^pack:(botGuardScript:android|android:dev:core)$/\"",
+    "tv:install": "powershell -ExecutionPolicy Bypass -File _scripts/tv/install.ps1",
+    "tv:run": "powershell -ExecutionPolicy Bypass -File _scripts/tv/key.ps1",
     "checkforbadtemplates": "node _scripts/findMissingTemplates.mjs",
     "ci": "pnpm install --frozen-lockfile"
   },

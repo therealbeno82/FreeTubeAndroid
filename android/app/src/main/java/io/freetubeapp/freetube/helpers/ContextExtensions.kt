@@ -27,8 +27,8 @@ import java.io.File
 
 fun Context.createNotificationChannel(channelId: String): NotificationChannel {
   val notificationManager = NotificationManagerCompat.from(this)
-  val channel = notificationManager.getNotificationChannel(channelId, "Media Controls")
-    ?: NotificationChannel(channelId, "Media Controls", NotificationManager.IMPORTANCE_MIN)
+  val channel = notificationManager.getNotificationChannel(channelId)
+    ?: NotificationChannel(channelId, "Media Controls", NotificationManager.IMPORTANCE_LOW)
 
   channel.lockscreenVisibility = Notification.VISIBILITY_PRIVATE
   notificationManager.createNotificationChannel(channel)
@@ -38,7 +38,6 @@ fun Context.createNotificationChannel(channelId: String): NotificationChannel {
 fun Context.createMediaSession(channelId: String, dispatchEvent: (String) -> Unit, updatePos: (Long) -> Unit): MediaSession {
   // add the callbacks && listeners
   val session = MediaSession(this, channelId)
-  session.isActive = true
 
   session.setCallback(object : MediaSession.Callback() {
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
@@ -54,18 +53,22 @@ fun Context.createMediaSession(channelId: String, dispatchEvent: (String) -> Uni
         when (keyEvent.keyCode) {
           KEYCODE_MEDIA_PLAY -> {
             dispatchEvent("media-play")
+            true
           }
           KEYCODE_MEDIA_PAUSE -> {
             dispatchEvent("media-pause")
+            true
           }
           KEYCODE_MEDIA_NEXT -> {
             dispatchEvent("media-next")
+            true
           }
           KEYCODE_MEDIA_PREVIOUS -> {
             dispatchEvent("media-previous")
+            true
           }
+          else -> super.onMediaButtonEvent(mediaButtonIntent)
         }
-        false
       }
     }
 
@@ -99,11 +102,13 @@ fun Context.createMediaSession(channelId: String, dispatchEvent: (String) -> Uni
 }
 
 
+const val MEDIA_CONTROLS_ACTION_PREFIX = "io.freetubeapp.freetube."
+
 fun Context.getMediaControlsIntent(action: String): Intent {
   return Intent(
     this,
     MediaControlsReceiver::class.java
-  ).setAction(action)
+  ).setAction("$MEDIA_CONTROLS_ACTION_PREFIX$action")
 }
 
 fun Context.getAction(icon: Int, label: String, action: String): Notification.Action {
@@ -185,7 +190,7 @@ fun Context.createNotification(session: MediaSession, channelId: String, state: 
       PendingIntent.getBroadcast(
         this,
         101,
-        getMediaControlsIntent( "pause"),
+        getMediaControlsIntent("dismiss"),
         PendingIntent.FLAG_IMMUTABLE
       )
     )
@@ -204,7 +209,13 @@ fun Context.resolveAmbiguousUri(givenUri: String): DocumentFile? {
   return if (givenUri.startsWith("data://")) {
     val path = givenUri.removePrefix("data://")
     val dataDir = getDataDirectory() ?: return null
-    DocumentFile.fromFile(File(dataDir, path))
+    val base = File(dataDir).canonicalFile
+    val target = File(base, path).canonicalFile
+    val basePath = base.path
+    if (target != base && !target.path.startsWith(basePath + File.separator)) {
+      return null
+    }
+    DocumentFile.fromFile(target)
   } else {
     DocumentFile.fromSingleUri(this, givenUri.toUri())
   }

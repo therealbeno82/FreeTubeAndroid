@@ -28,6 +28,19 @@ export function isTelevision() {
   return android.isTelevision()
 }
 
+/**
+ * whether this is a debuggable (debug-signed) build, so the renderer knows to skip
+ * the update check (a debug build always looks "out of date" against the latest release).
+ * Always false off android.
+ * @returns {boolean}
+ */
+export function isDebugBuild() {
+  if (!process.env.IS_ANDROID) {
+    return false
+  }
+  return android.isDebugBuild()
+}
+
 const REPO_ID = 'MarmadileManteater/FreetubeAndroid'
 
 /**

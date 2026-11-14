@@ -8,7 +8,29 @@
  * @private
  */
 
-import { getCurrentDataDirectory, getFullUri, writeFile, readFile } from './storage'
+import { fileExists, getCurrentDataDirectory, getFullUri, readFileStrict, updateFilesInCurrentDataDirectory, writeFile, readFile } from './storage'
+
+/**
+ * A full rewrite goes to this sibling file first, see crashSafeWriteFileLinesAsync.
+ * @param {string} filename
+ */
+const journalNameFor = (filename) => `${filename}~`
+
+/**
+ * The journal leads with the length of what follows, which is how a journal that was
+ * only partly written is told apart from a complete one.
+ * @param {string} journal
+ * @returns {string | null} the journalled data, or null if the journal is incomplete
+ */
+export function readJournal(journal) {
+  const headerEnd = journal.indexOf('\n')
+  if (headerEnd === -1) {
+    return null
+  }
+  const length = Number.parseInt(journal.slice(0, headerEnd), 10)
+  const data = journal.slice(headerEnd + 1)
+  return Number.isNaN(length) || data.length !== length ? null : data
+}
 
 /**
  * Returns Promise<true> if file exists.
@@ -36,16 +58,20 @@ export async function existsAsync (file) {
  * @async
  */
 export async function renameAsync (oldPath, newPath) {
-  try {
-    const oldUri = await getFullUri(oldPath)
-    const content = await readFile(oldUri)
-    const directory = await getCurrentDataDirectory()
-    const newUri = await directory.createFile(newPath)
-    await writeFile(newUri, content)
-  } catch (err) {
-    console.warn('NeDB - storage.browser - renameAsync:', err)
-    console.warn('An error happened while renaming, skip')
+  const oldUri = await getFullUri(oldPath)
+  if (oldUri === null) {
+    throw new Error(`Cannot rename missing file ${oldPath}`)
   }
+  const content = await readFile(oldUri)
+  const directory = await getCurrentDataDirectory()
+  const newUri = await directory.createFile(newPath)
+  const ok = await writeFile(newUri, content)
+  if (!ok) {
+    throw new Error(`Failed to write renamed file ${newPath}`)
+  }
+  directory.files[newPath] = newUri
+  delete directory.files[oldPath]
+  await updateFilesInCurrentDataDirectory(directory.files)
 }
 
 /**
@@ -58,16 +84,14 @@ export async function renameAsync (oldPath, newPath) {
  * @async
  */
 export async function writeFileAsync(file, data, options) {
-  try {
-    let uri = await getFullUri(file)
-    if (uri === null) {
-      const directory = await getCurrentDataDirectory()
-      uri = await directory.createFile(file)
-    }
-    await writeFile(uri, data)
-  } catch (error) {
-    console.warn('NeDB - storage.browser - writeFileAsync:', error)
-    console.warn('An error happened while writing, skip')
+  let uri = await getFullUri(file)
+  if (uri === null) {
+    const directory = await getCurrentDataDirectory()
+    uri = await directory.createFile(file)
+  }
+  const ok = await writeFile(uri, data)
+  if (!ok) {
+    throw new Error(`Failed to write ${file}`)
   }
 }
 
@@ -82,17 +106,14 @@ export async function writeFileAsync(file, data, options) {
  * @async
  */
 export async function appendFileAsync(filename, toAppend, options) {
-  // Options do not matter in browser setup
-  try {
-    let uri = await getFullUri(filename)
-    if (uri === null) {
-      const directory = await getCurrentDataDirectory()
-      uri = await directory.createFile(filename)
-    }
-    await writeFile(uri, toAppend, true)
-  } catch (error) {
-    console.warn('NeDB - storage.browser - appendFileAsync:', error)
-    console.warn('An error happened appending to file writing, skip')
+  let uri = await getFullUri(filename)
+  if (uri === null) {
+    const directory = await getCurrentDataDirectory()
+    uri = await directory.createFile(filename)
+  }
+  const ok = await writeFile(uri, toAppend, true)
+  if (!ok) {
+    throw new Error(`Failed to append ${filename}`)
   }
 }
 
@@ -106,17 +127,20 @@ export async function appendFileAsync(filename, toAppend, options) {
  * @async
  */
 export async function readFileAsync(filename, options) {
+  const uri = await getFullUri(filename)
+  if (uri === null) {
+    throw new Error('File not found!')
+  }
   try {
-    const uri = await getFullUri(filename)
-    if (uri === null) {
-      throw new Error('File not found!')
-    }
-    const content = await readFile(uri)
-    return content
+    return await readFileStrict(uri)
   } catch (error) {
-    console.warn('NeDB - storage.browser - readFileAsync:', error)
-    console.warn('An error happened while reading, skip')
-    return ''
+    // A datafile that has not been created yet reads as empty. One that is there but
+    // could not be read must not: nedb would load no documents and then write that
+    // empty state back over the real data.
+    if (!(await fileExists(uri))) {
+      return ''
+    }
+    throw new Error(`Failed to read ${filename}: ${error?.message ?? error}`, { cause: error })
   }
 }
 
@@ -158,7 +182,25 @@ export async function ensureParentDirectoryExistsAsync(file, mode) { return Prom
  * @return {Promise<void>}
  * @alias module:storageBrowser.ensureDatafileIntegrityAsync
  */
-export async function ensureDatafileIntegrityAsync(filename) { return Promise.resolve() }
+export async function ensureDatafileIntegrityAsync(filename) {
+  const journalUri = await getFullUri(journalNameFor(filename))
+  if (journalUri === null) {
+    return
+  }
+  const journal = await readFile(journalUri)
+  if (journal === '') {
+    return
+  }
+
+  // A journal with content in it means a rewrite was interrupted. If it is complete the
+  // interruption came while the datafile itself was being overwritten, so the datafile
+  // cannot be trusted and is restored. If it is incomplete the datafile was never touched.
+  const data = readJournal(journal)
+  if (data !== null) {
+    await writeFileAsync(filename, data)
+  }
+  await writeFile(journalUri, '')
+}
 
 /**
  * Fully write or rewrite the datafile, immune to crashes during the write operation (data will not be lost)
@@ -168,6 +210,14 @@ export async function ensureDatafileIntegrityAsync(filename) { return Promise.re
  * @alias module:storageBrowser.crashSafeWriteFileLinesAsync
  */
 export async function crashSafeWriteFileLinesAsync(filename, lines) {
-  const linesCopy = [...lines, ''] // Add final new line without mutating caller array
-  await writeFileAsync(filename, linesCopy.join('\n'))
+  const data = [...lines, ''].join('\n')
+  const journalName = journalNameFor(filename)
+
+  // There is no atomic rename to lean on here, a rename is a copy. So the new contents
+  // are journalled in full first, and the journal is only emptied once the datafile has
+  // been overwritten. Whichever write is interrupted, ensureDatafileIntegrityAsync can
+  // tell on the next load and one intact copy always survives.
+  await writeFileAsync(journalName, `${data.length}\n${data}`)
+  await writeFileAsync(filename, data)
+  await writeFileAsync(journalName, '')
 }

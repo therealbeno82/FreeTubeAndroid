@@ -2776,10 +2776,10 @@ export default defineComponent({
           updateMediaSessionState(videoElement.paused ? STATE_PAUSED : STATE_PLAYING, Math.floor(videoElement.currentTime * 1000))
         })
         updateBufferInterval = setInterval(() => {
-          if (videoElement.buffered.length == 0) {
+          if (videoElement.buffered.length === 0) {
             updateMediaSessionState(videoElement.paused ? STATE_PAUSED : STATE_BUFFERING, Math.floor(videoElement.currentTime * 1000))
           }
-        }, 0)
+        }, 500)
       }
 
       const volume = sessionStorage.getItem('volume')
@@ -3097,23 +3097,51 @@ export default defineComponent({
         startInFullscreen = false
         if (process.env.IS_ELECTRON) {
           window.ftElectron.requestFullscreen()
-        } else if (process.env.IS_ANDROID && isOnTelevision) {
+        } else if (process.env.IS_ANDROID) {
+          // The request settling and document.fullscreenElement being set are not the
+          // same moment, so give the change event a chance before deciding it failed.
+          // Deciding too early would turn on full-window on top of real fullscreen.
+          const fullscreenEngaged = () => {
+            if (document.fullscreenElement) {
+              return Promise.resolve(true)
+            }
+            return new Promise((resolve) => {
+              const done = () => {
+                clearTimeout(timer)
+                document.removeEventListener('fullscreenchange', done)
+                resolve(!!document.fullscreenElement)
+              }
+              const timer = setTimeout(done, 500)
+              document.addEventListener('fullscreenchange', done)
+            })
+          }
+
+          let engaged = false
           try {
             const controls = ui.getControls()
             if (controls && typeof controls.toggleFullScreen === 'function') {
-              controls.toggleFullScreen()
+              await controls.toggleFullScreen()
+              engaged = await fullscreenEngaged()
             } else if (container.value.requestFullscreen) {
               await container.value.requestFullscreen()
+              engaged = await fullscreenEngaged()
             } else if (video.value.requestFullscreen) {
               await video.value.requestFullscreen()
+              engaged = await fullscreenEngaged()
             }
-            // Give the remote a focused target — the container is the single TV
-            // navigation destination and Enter on it toggles play/pause.
-            nextTick(() => container.value?.focus({ preventScroll: true }))
           } catch (e) {
-            console.warn('TV auto-fullscreen failed, falling back to fullWindow', e)
-            fullWindowEnabled.value = true
+            console.warn('Android auto-fullscreen failed', e)
           }
+          // The Fullscreen API can be blocked in a WebView when there is no user gesture,
+          // or shaka can silently take a no-op path. If it did not actually engage, fall
+          // back to in-page full-window which overlays the whole app and takes over the
+          // screen (covering the sidebar / top bar).
+          if (!engaged) {
+            events.dispatchEvent(new CustomEvent('setFullWindow', { detail: true }))
+          }
+          // Give the player a focused target — it is the single navigation destination
+          // and Enter on it toggles play/pause.
+          nextTick(() => container.value?.focus({ preventScroll: true }))
         }
       }
     }

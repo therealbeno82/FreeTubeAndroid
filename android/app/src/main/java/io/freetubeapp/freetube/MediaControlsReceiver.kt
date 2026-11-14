@@ -11,12 +11,11 @@ open class MediaControlsReceiver : BroadcastReceiver() {
   }
 
   override fun onReceive(context: Context?, intent: Intent?) {
-    val action = intent?.action
+    val action = intent?.action?.removePrefix("io.freetubeapp.freetube.")
     if (action != null) {
       try {
         notifyMediaSessionListeners?.invoke(action)
       } catch (_: Exception) {
-        // listener not yet initialized or already torn down
       }
     }
   }

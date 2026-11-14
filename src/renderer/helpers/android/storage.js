@@ -1,6 +1,6 @@
 import android from 'android'
 import { awaitAsyncResult } from './jsinterface'
-import { blobToBase64, reverseObject } from './utils'
+import { blobToBase64 } from './utils'
 
 export const DATA_DIRECTORY = 'data://'
 
@@ -25,6 +25,26 @@ export async function readFile(uri) {
 }
 
 /**
+ * a strict file read, which throws when the file cannot be read for any reason
+ * @param {string} uri uri
+ * @returns {Promise<string>} file contents
+ */
+export async function readFileStrict(uri) {
+  return await awaitAsyncResult(android.readFile(uri))
+}
+
+/**
+ * whether a file is actually present in the current data directory, as opposed to merely
+ * being expected there
+ * @param {string} uri
+ * @returns {Promise<boolean>}
+ */
+export async function fileExists(uri) {
+  const directory = await getCurrentDataDirectory()
+  return directory.listFiles().some(file => file.uri === uri)
+}
+
+/**
  * @param {string} uri
  * @param {string|Blob} content
  * @param {bool?} append whether or not to append to the file (default: false)
@@ -43,13 +63,6 @@ export async function writeFile(uri, content, append = false) {
     return true
   } catch (exception) {
     console.error(exception)
-    const directory = await getCurrentDataDirectory()
-    const key = reverseObject(directory.files)[uri]
-    console.warn(`Removing ${key} from known files since it errored!`)
-    if (key !== undefined) {
-      delete directory.files[key]
-      await updateFilesInCurrentDataDirectory(directory.files)
-    }
     return false
   }
 }
@@ -89,7 +102,9 @@ function restoreHandleFromDirectoryUri(uri) {
     return {
       uri,
       async createFile(fileName) {
-        return await writeFile(`${DATA_DIRECTORY}${fileName}`, '', false)
+        const uri = `${DATA_DIRECTORY}${fileName}`
+        await writeFile(uri, '', false)
+        return uri
       },
       listFiles() {
         return JSON.parse(android.listFilesInDataDir())
@@ -170,11 +185,12 @@ export async function getCurrentDataDirectory() {
     }
   }
 
-  return {
+  currentDataDirectory = {
     ...restoreHandleFromDirectoryUri(DATA_DIRECTORY),
     directory: DATA_DIRECTORY,
-    files: EXPECTED_FILES_MAP
+    files: { ...EXPECTED_FILES_MAP }
   }
+  return currentDataDirectory
 }
 
 /**
@@ -225,43 +241,39 @@ async function initializeDataDirectory(handle) {
 }
 
 export async function selectDataDirectory(copyFiles = false, reset = false) {
-  try {
-    const newDirectory = reset ? restoreHandleFromDirectoryUri(DATA_DIRECTORY) : await requestDirectoryAccessDialog()
+  const newDirectory = reset ? restoreHandleFromDirectoryUri(DATA_DIRECTORY) : await requestDirectoryAccessDialog()
 
-    if (newDirectory.canceled) {
-      return
-    }
+  if (newDirectory.canceled) {
+    return
+  }
 
-    const newFiles = await initializeDataDirectory(newDirectory)
-    const currentDirectory = await getCurrentDataDirectory()
-    const hasOldLocation = currentDirectory.uri !== DATA_DIRECTORY
+  const newFiles = await initializeDataDirectory(newDirectory)
+  const currentDirectory = await getCurrentDataDirectory()
+  const hasOldLocation = currentDirectory.uri !== DATA_DIRECTORY
 
-    if (copyFiles) {
-      for (const fileName in currentDirectory.files) {
-        if (EXPECTED_FILES.indexOf(fileName) !== -1) {
-          const data = await readFile(currentDirectory.files[fileName])
-          await writeFile(newFiles[fileName], data)
-        }
+  if (copyFiles) {
+    for (const fileName in currentDirectory.files) {
+      if (EXPECTED_FILES.indexOf(fileName) !== -1) {
+        const data = await readFile(currentDirectory.files[fileName])
+        await writeFile(newFiles[fileName], data)
       }
     }
-
-    if (hasOldLocation) {
-      android.revokePermissionForTree(currentDirectory.uri)
-    }
-
-    currentDataDirectory = null
-    await writeFile(DATA_LOCATION, JSON.stringify({
-      directory: newDirectory.uri,
-      files: filesToEntries(newFiles)
-    }))
-
-    if (!copyFiles) {
-      android.restart()
-    }
-    return android.getDirectory(newDirectory.uri)
-  } catch (exception) {
-    throw exception
   }
+
+  if (hasOldLocation) {
+    android.revokePermissionForTree(currentDirectory.uri)
+  }
+
+  currentDataDirectory = null
+  await writeFile(DATA_LOCATION, JSON.stringify({
+    directory: newDirectory.uri,
+    files: filesToEntries(newFiles)
+  }))
+
+  if (!copyFiles) {
+    android.restart()
+  }
+  return android.getDirectory(newDirectory.uri)
 }
 
 export async function getFullUri(partialUri) {
@@ -271,7 +283,7 @@ export async function getFullUri(partialUri) {
   }
 
   const files = directoryData.listFiles()
-  const possibleMatches = files.filter(file => partialUri == file.fileName)
+  const possibleMatches = files.filter(file => partialUri === file.fileName)
 
   if (possibleMatches.length > 0) {
     directoryData.files[partialUri] = possibleMatches[0].uri

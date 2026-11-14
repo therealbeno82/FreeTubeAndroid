@@ -1,12 +1,9 @@
 package io.freetubeapp.freetube.activities
 
 import android.content.Intent
-import android.graphics.Canvas
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.addCallback
-import androidx.core.graphics.createBitmap
-import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.freetubeapp.freetube.helpers.ApplicationState
@@ -58,13 +55,7 @@ open class FreeTubeActivity: LaunchIntentActivity() {
       windowInsetsControllerCompat.isAppearanceLightStatusBars = !statusDarkMode
       window.navigationBarColor = navigationHex.hexToColour()
       window.statusBarColor = statusHex.hexToColour()
-
-      val bitmap = createBitmap(24, 24)
-      bitmap.eraseColor(navigationHex.hexToColour())
-      val canvas = Canvas(bitmap)
-      canvas.drawColor(navigationHex.hexToColour())
-      val bitmapDrawable = bitmap.toDrawable(resources)
-      window.setBackgroundDrawable(bitmapDrawable)
+      window.decorView.setBackgroundColor(navigationHex.hexToColour())
     }
   }
 }

@@ -1,10 +1,11 @@
 <template>
   <nav
     class="topNav"
-    :class="{ topNavBarColor: barColor }"
+    :class="{ topNavBarColor: barColor, isTelevision: isOnTelevision }"
   >
     <div class="side">
       <button
+        v-if="!isOnTelevision"
         class="menuButton navButton"
         :aria-label="expandCollapseSideBarLabel"
         :title="expandCollapseSideBarLabel"
@@ -44,7 +45,7 @@
         @click="historyForward"
       />
       <button
-        v-if="!hideSearchBar"
+        v-if="!hideSearchBar && !isOnTelevision"
         class="navSearchButton navButton"
         @click="toggleSearchContainer"
       >
@@ -54,6 +55,7 @@
         />
       </button>
       <button
+        v-if="!isOnTelevision"
         class="navNewWindowButton navButton"
         :aria-label="t('Open New Window')"
         :title="newWindowText"
@@ -79,7 +81,10 @@
         />
       </RouterLink>
     </div>
-    <div class="middle">
+    <div
+      v-if="!isOnTelevision"
+      class="middle"
+    >
       <div
         v-if="!hideSearchBar"
         v-show="showSearchContainer"
@@ -135,6 +140,7 @@ import { debounce, localizeAndAddKeyboardShortcutToActionTitle, openInternalPath
 import { translateWindowTitle } from '../../helpers/strings'
 import { clearLocalSearchSuggestionsSession, getLocalSearchSuggestions } from '../../helpers/api/local'
 import { getInvidiousSearchSuggestions } from '../../helpers/api/invidious'
+import { isTelevision } from '../../helpers/android/system'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -155,6 +161,8 @@ const hideHeaderLogo = computed(() => store.getters.getHideHeaderLogo)
 const enableSearchSuggestions = computed(() => store.getters.getEnableSearchSuggestions)
 /** @type {import('vue').ComputedRef<string>} */
 const barColor = computed(() => store.getters.getBarColor)
+
+const isOnTelevision = isTelevision()
 
 const expandCollapseSideBarLabel = computed(() => {
   return store.getters.getIsSideNavOpen ? t('Compact side navigation') : t('Expand side navigation')
@@ -381,10 +389,10 @@ function goToSearch(queryText, { event }) {
   const doCreateNewWindow = event && event.shiftKey
 
   if (window.innerWidth <= MOBILE_WIDTH_THRESHOLD) {
-    searchContainer.value.blur()
+    searchContainer.value?.blur()
     showSearchContainer.value = false
   } else {
-    searchInput.value.blur()
+    searchInput.value?.blur()
   }
 
   clearLocalSearchSuggestionsSession()
@@ -597,6 +605,7 @@ function handleKeyboardShortcuts(event) {
 
   if (
     !hideSearchBar.value &&
+    !isOnTelevision &&
     (
       (ctrlOrCommandPressed && (event.key === 'L' || event.key === 'l')) ||
       (event.altKey && (event.key === 'D' || event.key === 'd' || (process.platform === 'darwin' && event.key === '∂')))

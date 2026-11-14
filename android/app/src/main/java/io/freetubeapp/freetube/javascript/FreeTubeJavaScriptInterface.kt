@@ -1,8 +1,14 @@
 package io.freetubeapp.freetube.javascript
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.media.session.PlaybackState.STATE_PAUSED
+import android.os.Handler
+import android.os.Looper
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
@@ -17,12 +23,17 @@ import io.freetubeapp.freetube.helpers.readBytes
 import io.freetubeapp.freetube.helpers.readText
 import io.freetubeapp.freetube.helpers.resolveAmbiguousUri
 import io.freetubeapp.freetube.helpers.writeBytes
+import io.freetubeapp.freetube.webviews.BotGuardWebView
 import io.freetubeapp.freetube.webviews.FreeTubeWebView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.charset.Charset
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -32,7 +43,7 @@ class FreeTubeJavaScriptInterface(
   private val context: FreeTubeActivity,
   private val webView: FreeTubeWebView
 ) {
-  private val coroutineScope = CoroutineScope(Dispatchers.Main)
+  private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val mediaSession: MediaSessionFacade = MediaSessionFacade(
     context,
     "media_controls",
@@ -45,14 +56,12 @@ class FreeTubeJavaScriptInterface(
   )
   val jsCommunicator: AsyncJSCommunicator = AsyncJSCommunicator(webView)
 
-  // region Media Notifications
-  /**
-   * creates a media notification
-   * @param title the track name / video title
-   * @param artist the author / channel name
-   * @param duration the duration in milliseconds of the video
-   * @param thumbnail a URL to the thumbnail for the video
-   */
+  fun release() {
+    coroutineScope.cancel()
+    mediaSession.release()
+    webView.destroyChildren()
+  }
+
   @JavascriptInterface
   fun createMediaSession(title: String, artist: String, duration: Long = 0, thumbnail: String? = null) {
     mediaSession
@@ -61,9 +70,6 @@ class FreeTubeJavaScriptInterface(
       .push()
   }
 
-  /**
-   * updates the playback state of a media notification
-   */
   @JavascriptInterface
   fun updateMediaSessionState(state: String?, position: String? = null) {
     mediaSession
@@ -73,9 +79,6 @@ class FreeTubeJavaScriptInterface(
       )
   }
 
-  /**
-   * updates the track information of a media notification
-   */
   @JavascriptInterface
   fun updateMediaSessionData(trackName: String, artist: String, duration: Long, art: String? = null) {
     mediaSession
@@ -92,13 +95,6 @@ class FreeTubeJavaScriptInterface(
     mediaSession.cancel()
   }
 
-  // endregion
-
-  // region File Helpers
-  /**
-   * @param directory a shortened directory uri
-   * @return a full directory uri
-   */
   @JavascriptInterface
   fun getDirectory(directory: String): String? {
     return if (directory == DATA_DIRECTORY) {
@@ -110,16 +106,19 @@ class FreeTubeJavaScriptInterface(
 
   @JavascriptInterface
   fun revokePermissionForTree(treeUri: String) {
-    context.revokeUriPermission(
-      treeUri.toUri(),
-      Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-    )
+    try {
+      context.contentResolver.releasePersistableUriPermission(
+        treeUri.toUri(),
+        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+      )
+    } catch (_: Exception) {
+    }
   }
 
   @JavascriptInterface
   fun listFilesInTree(tree: String): String {
     val directory = DocumentFile.fromTreeUri(context, tree.toUri())
-    val array = org.json.JSONArray()
+    val array = JSONArray()
     directory?.listFiles()?.forEach { file ->
       val obj = JSONObject()
       obj.put("uri", file.uri.toString())
@@ -136,16 +135,14 @@ class FreeTubeJavaScriptInterface(
     val directory = DocumentFile.fromTreeUri(context, tree.toUri())
     return directory?.createFile("*/*", fileName)?.uri?.toString()
   }
-  // endregion
 
-  // region IO
   @JavascriptInterface
   fun listFilesInDataDir(): String {
     val directory = context.getDataDirectory()
     return if (directory == null) {
       "[]"
     } else {
-      val array = org.json.JSONArray()
+      val array = JSONArray()
       File(directory).listFiles()?.forEach { file ->
         val obj = JSONObject()
         obj.put("uri", "$DATA_DIRECTORY${file.name}")
@@ -158,48 +155,49 @@ class FreeTubeJavaScriptInterface(
     }
   }
 
-  /**
-   * reads a file from storage
-   */
   @JavascriptInterface
   fun readFile(uri: String): String {
     return Promise(coroutineScope) { resolve, reject ->
-      val file = context.resolveAmbiguousUri(uri)
-      if (file != null) {
-        try {
-          resolve(context.contentResolver
-            .readBytes(file.uri)
-            ?.toString(Charset.forName("utf-8")))
-        } catch (ex: Throwable) {
-          reject(ex.stackTraceToString())
+      try {
+        val file = context.resolveAmbiguousUri(uri)
+        if (file != null) {
+          val bytes = context.contentResolver.readBytes(file.uri)
+          if (bytes == null) {
+            reject("File not found from given uri")
+          } else {
+            resolve(bytes.toString(Charset.forName("utf-8")))
+          }
+        } else {
+          reject("File not found from given uri")
         }
-      } else {
-        reject("File not found from given uri")
+      } catch (ex: Throwable) {
+        reject(ex.stackTraceToString())
       }
     }.addJsCommunicator(jsCommunicator)
   }
 
-  /**
-   * writes a file to storage
-   */
   @OptIn(ExperimentalEncodingApi::class)
   @JavascriptInterface
   fun writeFile(uri: String, content: String): String {
     return Promise(coroutineScope) { resolve, reject ->
-      val file = context.resolveAmbiguousUri(uri)
-      if (file != null) {
-        val bytes = if (content.startsWith("data:")) {
-          Base64.decode(content.split("base64,")[1])
+      try {
+        val file = context.resolveAmbiguousUri(uri)
+        if (file != null) {
+          val bytes = if (content.startsWith("data:")) {
+            Base64.decode(content.split("base64,")[1])
+          } else {
+            content.toByteArray()
+          }
+          context.contentResolver.writeBytes(
+            file.uri,
+            bytes
+          )
+          resolve("")
         } else {
-          content.toByteArray()
+          reject("File not found from given uri")
         }
-        context.contentResolver.writeBytes(
-          file.uri,
-          bytes
-        )
-        resolve("")
-      } else {
-        reject("File not found from given uri")
+      } catch (ex: Throwable) {
+        reject(ex.stackTraceToString())
       }
     }.addJsCommunicator(jsCommunicator)
   }
@@ -208,31 +206,29 @@ class FreeTubeJavaScriptInterface(
   @JavascriptInterface
   fun appendFile(uri: String, content: String): String {
     return Promise(coroutineScope) { resolve, reject ->
-      val file = context.resolveAmbiguousUri(uri)
-      if (file != null) {
-        val bytes = if (content.startsWith("data:")) {
-          Base64.decode(content.split("base64,")[1])
+      try {
+        val file = context.resolveAmbiguousUri(uri)
+        if (file != null) {
+          val bytes = if (content.startsWith("data:")) {
+            Base64.decode(content.split("base64,")[1])
+          } else {
+            content.toByteArray()
+          }
+          context.contentResolver.writeBytes(
+            file.uri,
+            bytes,
+            WriteMode.Append
+          )
+          resolve("")
         } else {
-          content.toByteArray()
+          reject("File not found from given uri")
         }
-        context.contentResolver.writeBytes(
-          file.uri,
-          bytes,
-          WriteMode.Append
-        )
-        resolve("")
-      } else {
-        reject("File not found from given uri")
+      } catch (ex: Throwable) {
+        reject(ex.stackTraceToString())
       }
     }.addJsCommunicator(jsCommunicator)
   }
-  // endregion
 
-  // region Dialogs
-  /**
-   * requests a save dialog, resolves a js promise when done, resolves with `USER_CANCELED` if the user cancels
-   * @return a js promise id
-   */
   @JavascriptInterface
   fun requestSaveDialog(fileName: String, fileType: String): String {
     return Promise(coroutineScope) { resolve, reject ->
@@ -253,6 +249,8 @@ class FreeTubeJavaScriptInterface(
         } catch (ex: Exception) {
           reject(ex.toString())
         }
+      }.`catch` {
+        reject(it.toString())
       }
     }.addJsCommunicator(jsCommunicator)
   }
@@ -285,6 +283,8 @@ class FreeTubeJavaScriptInterface(
         } catch (ex: Exception) {
           reject(ex.toString())
         }
+      }.`catch` {
+        reject(it.toString())
       }
     }.addJsCommunicator(jsCommunicator)
   }
@@ -313,43 +313,45 @@ class FreeTubeJavaScriptInterface(
         } catch (ex: Exception) {
           reject(ex.toString())
         }
+      }.`catch` {
+        reject(it.toString())
       }
     }.addJsCommunicator(jsCommunicator)
   }
 
-  // endregion
-
-  // region System
-
   @JavascriptInterface
   fun openExternalLink(url: String) {
-    context.startActivity(
-      Intent(Intent.ACTION_VIEW, url.toUri())
-    )
+    val uri = url.toUri()
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") {
+      return
+    }
+    webView.post {
+      try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+      } catch (_: Exception) {
+      }
+    }
   }
 
   @JavascriptInterface
   fun getLogs(): String {
-    var logs = "["
-    for (message in context.state.consoleMessages) {
-      logs += "${message},"
+    val array = JSONArray()
+    synchronized(context.state.consoleMessages) {
+      for (message in context.state.consoleMessages) {
+        array.put(message)
+      }
     }
-    // get rid of trailing comma
-    if (logs.length > 1) {
-      logs = logs.substring(0, logs.length - 1)
-    }
-    logs += "]"
-    return logs
+    return array.toString()
   }
 
   @JavascriptInterface
   fun restart() {
-    context.restart()
+    context.runOnUiThread {
+      context.restart()
+    }
   }
 
-  /**
-   * hides the splashscreen
-   */
   @JavascriptInterface
   fun hideSplashScreen() {
     context.state.showSplashScreen = false
@@ -365,17 +367,16 @@ class FreeTubeJavaScriptInterface(
     context.setKeepScreenOn(false)
   }
 
-  /**
-   * used on the JS side for async js communication
-   */
   @JavascriptInterface
   fun getSyncMessage(promise: String): String? {
     return jsCommunicator.getSyncMessage(promise)
   }
 
-  /**
-   *
-   */
+  @JavascriptInterface
+  fun getSyncStatus(promise: String): String? {
+    return jsCommunicator.getSyncStatus(promise)
+  }
+
   @JavascriptInterface
   fun themeSystemUi(navigationHex: String, statusHex: String, navigationDarkMode: Boolean  = true,  statusDarkMode: Boolean = true) {
     context.themeSystemUi(navigationHex, statusHex, navigationDarkMode, statusDarkMode)
@@ -390,13 +391,14 @@ class FreeTubeJavaScriptInterface(
     }
   }
 
-  /**
-   * whether the app is running on a television, so that the renderer can switch to
-   * d-pad friendly behaviour instead of touch behaviour
-   */
   @JavascriptInterface
   fun isTelevision(): Boolean {
     return context.isTelevision()
+  }
+
+  @JavascriptInterface
+  fun isDebugBuild(): Boolean {
+    return (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
   }
 
   @JavascriptInterface
@@ -406,24 +408,50 @@ class FreeTubeJavaScriptInterface(
 
   @JavascriptInterface
   fun enterPromptMode() {
-    webView.isVerticalScrollBarEnabled = false
-    context.state.isInAPrompt = true
+    webView.post {
+      webView.isVerticalScrollBarEnabled = false
+      context.state.isInAPrompt = true
+    }
   }
 
   @JavascriptInterface
   fun exitPromptMode() {
-    webView.isVerticalScrollBarEnabled = true
-    context.state.isInAPrompt = false
+    webView.post {
+      webView.isVerticalScrollBarEnabled = true
+      context.state.isInAPrompt = false
+    }
+  }
+
+  private var defaultSoftInputMode: Int? = null
+
+  @JavascriptInterface
+  fun suppressInputMethod() {
+    context.runOnUiThread {
+      val window = context.window
+      defaultSoftInputMode = window.attributes.softInputMode
+      window.setSoftInputMode(
+        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+          WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+      )
+      val methodManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+      methodManager?.hideSoftInputFromWindow(context.currentFocus?.windowToken, 0)
+    }
+  }
+
+  @JavascriptInterface
+  fun restoreInputMethod() {
+    context.runOnUiThread {
+      defaultSoftInputMode?.let {
+        context.window.setSoftInputMode(it)
+      }
+      defaultSoftInputMode = null
+    }
   }
 
   @JavascriptInterface
   fun setScale(scale: Int) {
     webView.setScale(scale / 100.0, context)
   }
-
-  // endregion
-
-  // region Data Extraction
 
   private fun getBotGuardScript(
     videoId: String,
@@ -435,8 +463,15 @@ class FreeTubeJavaScriptInterface(
     val functionName = script.split("export{")[1].split(" as default};")[0]
     val exportSection = "export{${functionName} as default};"
     val bakedScript =
-      script.replace(exportSection, "; ${functionName}(\"$videoId\", $sessionContext, $initialAttestationData, $ytConfig)")
+      script.replace(exportSection, "; ${functionName}(${JSONObject.quote(videoId)}, $sessionContext, $initialAttestationData, $ytConfig)")
     return bakedScript
+  }
+
+  private fun destroyBotGuard(bgWv: BotGuardWebView) {
+    try {
+      bgWv.destroy()
+    } catch (_: Exception) {
+    }
   }
 
   @JavascriptInterface
@@ -448,42 +483,57 @@ class FreeTubeJavaScriptInterface(
   ): String {
     return Promise(coroutineScope) { resolve, reject ->
       webView.post {
+        val finished = AtomicBoolean(false)
+        val timeoutHandler = Handler(Looper.getMainLooper())
+        var bgWv: BotGuardWebView? = null
+        val timeoutRunnable = Runnable {
+          if (finished.compareAndSet(false, true)) {
+            reject("PO token generation timed out")
+            bgWv?.let { destroyBotGuard(it) }
+          }
+        }
         try {
           val bgScript = getBotGuardScript(videoId, sessionContext, initialAttestationData, ytConfig)
-          val bgWv = webView.generateBgWebview()
-          bgWv.jsInterface.onReturn {
-            run {
+          val created = webView.generateBgWebview()
+          bgWv = created
+          created.jsInterface.onReturn = { token ->
+            if (finished.compareAndSet(false, true)) {
+              timeoutHandler.removeCallbacks(timeoutRunnable)
               webView.post {
-                resolve(it)
-                bgWv.destroy()
+                resolve(token)
+                destroyBotGuard(created)
               }
             }
           }
-          bgWv.jsInterface.onReject {
-            run {
+          created.jsInterface.onReject = { error ->
+            if (finished.compareAndSet(false, true)) {
+              timeoutHandler.removeCallbacks(timeoutRunnable)
               webView.post {
-                reject(it)
-                bgWv.destroy()
+                reject(error)
+                destroyBotGuard(created)
               }
             }
           }
-          webView.post {
-            bgWv.loadDataWithBaseURL(
-              "https://www.youtube.com/",
-              "<!DOCTYPE html>" +
-                "<html lang=\"en\">" +
-                "<head>" +
-                "<title></title>" +
-                "</head>" +
-                "<body><script>${bgScript}.then((TOKEN_RESULT) => { console.log(`Your potoken is \${TOKEN_RESULT}`); Android.returnToken(TOKEN_RESULT) }).catch((error) => { Android.rejectToken(error.toString()) })</script></body>" +
-                "</html>",
-              "text/html",
-              "utf-8",
-              null
-            )
-          }
+          timeoutHandler.postDelayed(timeoutRunnable, 20000)
+          created.loadDataWithBaseURL(
+            "https://www.youtube.com/",
+            "<!DOCTYPE html>" +
+              "<html lang=\"en\">" +
+              "<head>" +
+              "<title></title>" +
+              "</head>" +
+              "<body><script>${bgScript}.then((TOKEN_RESULT) => { console.log(`Your potoken is \${TOKEN_RESULT}`); Android.returnToken(TOKEN_RESULT) }).catch((error) => { Android.rejectToken(error.toString()) })</script></body>" +
+              "</html>",
+            "text/html",
+            "utf-8",
+            null
+          )
         } catch (exception: Exception) {
-          reject(exception.message ?: exception.javaClass.name)
+          if (finished.compareAndSet(false, true)) {
+            timeoutHandler.removeCallbacks(timeoutRunnable)
+            bgWv?.let { destroyBotGuard(it) }
+            reject(exception.message ?: exception.javaClass.name)
+          }
         }
       }
     }.addJsCommunicator(jsCommunicator)
@@ -494,18 +544,13 @@ class FreeTubeJavaScriptInterface(
     webView.post {
       webView.generateSigWebview()
         .onLoad = {
-          // pass data to other webview
           jsInterface.jsCommunicator.resolve(id, code)
-          // dispatch event to read data
           dispatchEvent("message", "id", id)
-          // when timeout is called, clean up webview
           postDelayed({
-            destroy()
-          }, timeout.toLong())
+            destroyOnce()
+          }, timeout.toLongOrNull() ?: 10000L)
       }
     }
     return id
   }
-
-  // endregion
 }

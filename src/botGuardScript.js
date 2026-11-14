@@ -61,7 +61,7 @@ export default async function (videoId, context, initialAttestationData, ytConfi
   }
 
   window.yt = { config_: ytConfig } // BotGuard reads the EVENT_ID fieldd
-  await new Promise((resolve, _) => {
+  await new Promise((resolve) => {
     const script = document.createElement('script')
     script.src = interpreterUrl
     script.async = true

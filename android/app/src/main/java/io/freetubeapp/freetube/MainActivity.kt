@@ -1,8 +1,12 @@
 package io.freetubeapp.freetube
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.view.ViewGroup
 import android.view.WindowManager
 import io.freetubeapp.freetube.activities.FreeTubeActivity
 import io.freetubeapp.freetube.databinding.ActivityMainBinding
@@ -37,7 +41,6 @@ class MainActivity: FreeTubeActivity() {
       viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
         override fun onPreDraw(): Boolean {
           return if (!state.showSplashScreen) {
-            // Content is ready. Remove listener and start drawing.
             if (viewTreeObserver.isAlive) {
               viewTreeObserver.removeOnPreDrawListener(this)
             } else {
@@ -45,21 +48,27 @@ class MainActivity: FreeTubeActivity() {
             }
             true
           } else {
-            // Content isn't ready. Suspend.
             false
           }
         }
       })
+      root.postDelayed({
+        state.showSplashScreen = false
+      }, 8000)
       root.addView(webView)
     }
 
-    // this keeps android from shutting off the app to conserve battery
-    startService(keepGoingService)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+      }
+    }
 
     state.darkMode = resources.configuration.isDarkMode()
 
-    // allow fullscreen shaka player to use whole window width
-    window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+    window.attributes = window.attributes.apply {
+      layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+    }
 
   }
 
@@ -70,9 +79,6 @@ class MainActivity: FreeTubeActivity() {
     webView.dispatchEvent("enabled-$colorString-mode")
   }
 
-  /**
-   * handles new intents which involve deep links (aka supported links)
-   */
   override fun onNewIntent(intent: Intent?) {
     super.onNewIntent(intent)
     val url = intent?.toYtUrl()
@@ -94,13 +100,10 @@ class MainActivity: FreeTubeActivity() {
   }
 
   override fun onBack() {
-    // On TV, fullscreen has no on-screen close button — back is the way out.
-    // Handle it before prompt/history so a remote can leave the player.
     if (webView.isInFullscreen()) {
       webView.exitFullscreen()
       return
     }
-    // bind the back button to the web-view history
     if (state.isInAPrompt) {
       webView.dispatchEvent("exit-prompt")
       webView.jsInterface.exitPromptMode()
@@ -114,13 +117,12 @@ class MainActivity: FreeTubeActivity() {
   }
 
   override fun onDestroy() {
-    // stop the keep alive service
     stopService(keepGoingService)
-    // cancel media notification (if there is one)
-    webView.jsInterface.cancelMediaNotification()
-    // clean up the web view
+    webView.jsInterface.release()
+    (webView.parent as? ViewGroup)?.removeView(webView)
+    webView.removeJavascriptInterface("Android")
+    webView.loadUrl("about:blank")
     webView.destroy()
-    // call `super`
     super.onDestroy()
   }
 }

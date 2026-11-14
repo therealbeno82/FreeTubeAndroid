@@ -20,10 +20,15 @@ jobs:
       uses: actions/setup-node@v3
       with:
         node-version: 22.x
-        cache: "yarn"
-    
-    - name: 🧶 Yarn install
-      run: yarn ci
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 #v6.0.8
+      with:
+        version: 10
+        cache: false
+
+    - name: PNPM install
+      run: pnpm install --frozen-lockfile
 
     - name: Set environment icon & splash for android app
       run: |
@@ -31,8 +36,7 @@ jobs:
         node ./_scripts/_setAppSplashTheme.mjs --feature-branch
 
     - name: 🔍Lint code
-      run: yarn lint
-      continue-on-error: true
+      run: pnpm run lint
 
     - name: 📚Read package.json
       id: pkg
@@ -76,8 +80,8 @@ jobs:
 
     - name: 📦 Pack for 📱Android
       run: |
-        yarn pack:botGuardScript:android
-        yarn pack:android:dev
+        pnpm run pack:botGuardScript:android
+        pnpm run pack:android:dev:core
 
     - name: 🦴 Fetch keystore from secrets
       run: |
@@ -89,7 +93,6 @@ jobs:
         sed -i 's@// inject signing config@// inject signing config\r\nstoreFile = file("../../freetube.keystore")@' android/app/build.gradle.kts
         sed -i 's@// inject signing config@// inject signing config\r\nkeyPassword = "${{ secrets.KEYSTORE_PASSWORD }}"@' android/app/build.gradle.kts
         sed -i 's@// inject signing config@keyAlias = "fta_test"@' android/app/build.gradle.kts
-        cat android/app/build.gradle.kts
 
     - name: Update name
       run: |
@@ -107,7 +110,7 @@ jobs:
       run: cd android/ && chmod +x gradlew
 
     - name: Build with Gradle
-      run: cd android/ && ./gradlew build
+      run: cd android/ && ./gradlew assembleDebug
 
     - name: Rename APK w/ version info
       run: |

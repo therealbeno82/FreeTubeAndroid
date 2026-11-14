@@ -1,0 +1,141 @@
+/* TV Design Tokens — spec 2. Visual System */
+:root {
+  --bg-dark: #0f0f0f;
+  --surface-dark: #1e1e1e;
+  --accent-red: #f00;
+  --text-main: #fff;
+  --text-muted: #aaa;
+  --focus-ring: 4px solid #fff;
+}
+
+/* TV theme overrides — applied when app has .tv class */
+.app.tv {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+}
+
+/* Header / TopNav and Card backgrounds use surface-dark on TV */
+.app.tv .topNav {
+  background-color: var(--surface-dark);
+}
+
+.app.tv .ft-card,
+.app.tv .tvSearchCard {
+  background-color: var(--surface-dark);
+}
+
+.app.tv .sideNav {
+  background-color: var(--surface-dark);
+  inline-size: 200px;
+  transition-duration: 0.3s;
+  transition-timing-function: ease;
+}
+
+.app.tv .sideNav .inner {
+  inline-size: 200px;
+}
+
+.app.tv .sideNav.opened {
+  inline-size: 200px;
+}
+
+.app.tv .sideNav.opened .inner {
+  inline-size: 200px;
+}
+
+.app.tv .sideNav .navLabel {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Separator before Settings already exists as <hr> — ensure TV high-contrast */
+.app.tv .sideNav hr {
+  background-color: var(--text-muted);
+  opacity: 0.3;
+}
+
+/* B. Focus State (TV-Focus logic) — virtual focus visuals */
+.app.tv *:focus {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.app.tv *:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Ensure non-focused state has transition ready */
+.app.tv .navOption,
+.app.tv .navChannel,
+.app.tv .ft-list-video,
+.app.tv button,
+.app.tv a,
+.app.tv [tabindex] {
+  transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
+}
+
+/* Scale + subtle overlay + transition for TV focusable elements */
+.app.tv .navOption:focus,
+.app.tv .navChannel:focus,
+.app.tv .ft-list-video:focus-within,
+.app.tv .ft-list-video:focus,
+.app.tv button:focus,
+.app.tv a:focus,
+.app.tv [tabindex]:focus {
+  transform: scale(1.05);
+  background-color: rgb(255 255 255 / 10%);
+  transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
+}
+
+/* Override hideOutlines suppression on TV — keep focus visible anyway */
+.app.tv.hideOutlines *:focus {
+  outline: var(--focus-ring) !important;
+  outline-offset: 2px !important;
+}
+
+/* Video Grid — spec C: responsive minmax(280px, 1fr) for TV */
+@media only screen and (width > 680px) {
+  .app.tv .grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+}
+
+/* Card Anatomy — 16:9 thumbnail, padded info, semi-bold title, muted metadata */
+.app.tv .ft-list-video .videoThumbnail {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.app.tv .ft-list-video .thumbnailImage {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.app.tv .ft-list-video .info {
+  padding: 12px;
+  background: var(--surface-dark);
+}
+
+.app.tv .ft-list-video .h3Title {
+  font-weight: 600;
+  color: var(--text-main);
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.app.tv .ft-list-video .infoLine,
+.app.tv .ft-list-video .channelName,
+.app.tv .ft-list-video .viewCount,
+.app.tv .ft-list-video .uploadedTime {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* Search overlay backdrop per spec D: blur + rgba(0,0,0,0.85) */
+.app.tv .tvSearchOverlay {
+  background-color: rgb(0 0 0 / 85%);
+  backdrop-filter: blur(10px);
+}

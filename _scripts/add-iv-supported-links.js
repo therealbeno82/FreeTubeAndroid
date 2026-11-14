@@ -8,6 +8,6 @@ const { join } = require('path')
   const instancesXml = invidiousInstances.map(({ url, cors }) => {
     return `<data android:host="${url.replace('https://', '')}" />`
   }).join('\n              ')
-  const postManifest = manifest.replace(supportedLinks[0], `<!-- supported links -->\n              ${instancesXml}\n            <!-- \/supported links -->`)
+  const postManifest = manifest.replace(supportedLinks[0], `<!-- supported links -->\n              ${instancesXml}\n            <!-- /supported links -->`)
   await writeFile(join(__dirname, '../android/app/src/main/AndroidManifest.xml'), postManifest)
 })()

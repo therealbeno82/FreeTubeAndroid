@@ -1,13 +1,13 @@
 package io.freetubeapp.freetube.webviews
 
 import android.annotation.SuppressLint
-import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.webkit.WebChromeClient.CustomViewCallback
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -33,23 +33,40 @@ class FreeTubeWebView (
   val jsInterface = FreeTubeJavaScriptInterface(context, this)
 
   val onConsoleMessage: (JSONObject) -> Unit = { messageData: JSONObject ->
-    context.state.consoleMessages.add(messageData)
+    context.state.addConsoleMessage(messageData)
     dispatchEvent("console-message", "data", messageData)
   }
 
   private var fullscreenView: View? = null
   private var fullscreenCallback: CustomViewCallback? = null
+  private val childWebViews = mutableListOf<WebView>()
 
   fun isInFullscreen(): Boolean = fullscreenView != null
 
   fun exitFullscreen() {
-    if (fullscreenView != null) {
-      evaluateJavascript("try{if(document.fullscreenElement){document.exitFullscreen()}}catch(e){}") {}
-      // Force native removal if JS didn't trigger the chrome callback
-      if (fullscreenView != null) {
-        try {
-          webChromeClient.onHideCustomView()
-        } catch (_: Exception) {}
+    if (fullscreenView == null) {
+      return
+    }
+    try {
+      webChromeClient?.onHideCustomView()
+    } catch (_: Exception) {}
+  }
+
+  fun destroyChildren() {
+    val children = synchronized(childWebViews) {
+      val copy = childWebViews.toList()
+      childWebViews.clear()
+      copy
+    }
+    for (child in children) {
+      try {
+        (child.parent as? ViewGroup)?.removeView(child)
+        if (child is SigWebView) {
+          child.destroyOnce()
+        } else {
+          child.destroy()
+        }
+      } catch (_: Exception) {
       }
     }
   }
@@ -61,15 +78,12 @@ class FreeTubeWebView (
 
     @SuppressLint("SetJavaScriptEnabled")
     settings.javaScriptEnabled = true
-    // add the JavaScript interface
     addJavascriptInterface(jsInterface, "Android")
 
-    // this is the 🥃 special sauce that makes local api streaming a possibility
     @Suppress("DEPRECATION")
     settings.allowUniversalAccessFromFileURLs = true
     @Suppress("DEPRECATION")
     settings.allowFileAccessFromFileURLs = true
-    // allow playlist ▶auto-play in background
     settings.mediaPlaybackRequiresUserGesture = false
 
     webViewClient = object: WebViewClient() {
@@ -81,7 +95,6 @@ class FreeTubeWebView (
 
       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         if (request?.url?.scheme == "file") {
-          // don't send file url requests to a web browser (it will crash the app)
           return true
         }
 
@@ -90,13 +103,11 @@ class FreeTubeWebView (
           dispatchEvent("youtube-link", "link", urlString)
           return true
         }
-        // send all requests to a real web browser
         try {
           context.startActivity(
             Intent(Intent.ACTION_VIEW, request?.url)
           )
         } catch (_: Exception) {
-          // no browser installed or unable to handle intent
         }
         return true
       }
@@ -106,10 +117,17 @@ class FreeTubeWebView (
       onConsoleMessage(message)
     }) {
       override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+        if (fullscreenView != null) {
+          onHideCustomView()
+        }
         if (view != null) {
-          val viewGroup = (parent as ViewGroup)
+          val viewGroup = parent as? ViewGroup
+          if (viewGroup == null) {
+            // nowhere to put it, so tell the page that fullscreen did not happen
+            callback?.onCustomViewHidden()
+            return
+          }
 
-          // hide system ui
           viewGroup.fitsSystemWindows = false
 
           windowInsetsControllerWrapper.hide(WindowInsetsCompat.Type.systemBars())
@@ -124,13 +142,12 @@ class FreeTubeWebView (
 
       override fun onHideCustomView() {
         if (fullscreenView == null) return
-        val viewGroup = (parent as ViewGroup)
+        val viewGroup = parent as? ViewGroup
 
-        // show system ui
-        viewGroup.fitsSystemWindows = true
+        viewGroup?.fitsSystemWindows = true
         windowInsetsControllerWrapper.show(WindowInsetsCompat.Type.systemBars())
 
-        viewGroup.removeView(fullscreenView)
+        viewGroup?.removeView(fullscreenView)
         fullscreenView = null
         fullscreenCallback?.onCustomViewHidden()
         fullscreenCallback = null
@@ -140,14 +157,20 @@ class FreeTubeWebView (
   }
 
   fun generateBgWebview(): BotGuardWebView {
-    return BotGuardWebView(context, onConsoleMessage)
+    val view = BotGuardWebView(context, onConsoleMessage)
+    synchronized(childWebViews) {
+      childWebViews.add(view)
+    }
+    return view
   }
 
   fun generateSigWebview(): SigWebView {
     val view = SigWebView(context, jsInterface.jsCommunicator, onConsoleMessage)
-    val viewGroup = (parent as ViewGroup)
-    viewGroup.addView(view)
+    (parent as? ViewGroup)?.addView(view)
     view.visibility = GONE
+    synchronized(childWebViews) {
+      childWebViews.add(view)
+    }
     return view
   }
 }

@@ -23,8 +23,8 @@
               :icon="['fas', getFaIconFromLevel(log.level)]"
             />
             <span
+              v-safer-html="log.content"
               class="content"
-              v-html="log.content"
             />
             <span class="source">{{ `${removeQueryString(log.sourceId)}:${log.lineNumber}` }}</span>
             <span class="timestamp">{{ new Date(log.timestamp).toISOString() }}</span>
@@ -55,6 +55,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { isColourDark } from '../../helpers/android/utils'
 import { getConsoleLogs } from '../../helpers/android/system'
 import { useI18n } from 'vue-i18n'
+import { vSaferHtml } from '../../directives/vSaferHtml'
 
 const { t } = useI18n()
 
@@ -105,6 +106,25 @@ function onDarkModeEnabled() {
   }
 }
 
+/**
+ * console messages are plain text, so everything in one is escaped before the line
+ * breaks and indentation are turned into html
+ * @param {string} content
+ * @returns {string}
+ */
+function formatContent(content) {
+  return content
+    // sanitise html
+    .replaceAll('&', '&amp;')
+    .replaceAll('/', '&#47;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    // format text line breaks and tabs into html (for youtube.js errors)
+    .replaceAll('\n', '<br/>')
+    .replaceAll('\t', '&nbsp;&nbsp;')
+    .replaceAll('  ', '&nbsp;&nbsp;')
+}
+
 function onConsoleMessage({ data }) {
   if ('content' in data && data.content !== null) {
     if (data.content.indexOf('found in') === -1 && data.content.indexOf('---> <FtaLogViewer>') === -1) {
@@ -113,16 +133,7 @@ function onConsoleMessage({ data }) {
         if (logs.value.length > logLimit) {
           logs.value = logs.value.slice(logs.value.length - logLimit)
         }
-        data.content = data.content
-          // sanitise html
-          .replaceAll('&', '&amp;')
-          .replaceAll('/', '&#47;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          // format text line breaks and tabs into html (for youtube.js errors)
-          .replaceAll('\n', '<br/>')
-          .replaceAll('\t', '&nbsp;&nbsp;')
-          .replaceAll('  ', '&nbsp;&nbsp;')
+        data.content = formatContent(data.content)
         logs.value.push(data)
       }
     }
@@ -167,7 +178,10 @@ onMounted(() => {
     window.addEventListener('enabled-light-mode', onLightModeEnabled)
     window.addEventListener('enabled-dark-mode', onDarkModeEnabled)
     // when mounted, backfill the logs so far
-    logs.value.push(...getConsoleLogs())
+    // the backlog arrives raw from the native side, unlike the live messages
+    logs.value.push(...getConsoleLogs().map((log) => {
+      return typeof log.content === 'string' ? { ...log, content: formatContent(log.content) } : log
+    }))
     window.addEventListener('console-message', onConsoleMessage)
   }
 })

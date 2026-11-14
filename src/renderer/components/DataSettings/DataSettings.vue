@@ -192,7 +192,7 @@ async function selectDirectory() {
       dataDirectory.value = uri
     }
     showToast(t('Data Settings.Your data directory has been moved successfully'))
-  } catch (exception){
+  } catch (exception) {
     showToast(t('Data Settings.Error moving data directory'))
     console.error(exception)
   }

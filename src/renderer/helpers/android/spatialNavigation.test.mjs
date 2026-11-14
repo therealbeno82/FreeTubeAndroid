@@ -15,13 +15,15 @@ import {
   pickBestCandidate,
   scoreCandidate
 } from './spatialNavigation.js'
+import { versionNumberGt } from './utils.js'
+import { awaitAsyncResultFrom } from './asyncResult.js'
 
 const rect = (left, top, right, bottom) => ({ left, top, right, bottom })
 
 let passed = 0
 let failed = 0
 
-function check(label, got, want) {
+function check (label, got, want) {
   if (got === want) {
     passed++
     console.log(`  ok    ${label}`)
@@ -48,7 +50,7 @@ const names = new Map(Object.entries(page).map(([name, value]) => [value, name])
 const everything = Object.values(page)
 
 /** Moves from one named rect and reports where focus lands. */
-function move(source, direction) {
+function move (source, direction) {
   const others = everything.filter(candidate => candidate !== source)
   const index = pickBestCandidate(source, others, direction)
 
@@ -96,7 +98,7 @@ check('and a diagonal is still reachable alone', pickBestCandidate(box, [diagona
 console.log('\nwho owns the arrow keys')
 
 /** Enough of an element for the ownership rule, which never touches the real DOM. */
-function element({ tagName = 'DIV', type, isContentEditable = false, within = [] } = {}) {
+function element ({ tagName = 'DIV', type, isContentEditable = false, within = [] } = {}) {
   return {
     tagName,
     type,
@@ -127,6 +129,105 @@ check('and down leaves the player', ownsArrowKeys(inThePlayer, 'ArrowDown'), fal
 
 check('a prompt walks its own button row', ownsArrowKeys(inAPrompt, 'ArrowRight'), true)
 check('but vertical keys still navigate it', ownsArrowKeys(inAPrompt, 'ArrowDown'), false)
+
+console.log('\nversion numbers compare by numeric segment')
+check('1.10.0 is newer than 1.9.0', versionNumberGt('1.10.0', '1.9.0'), true)
+check('v0.25.2 is not newer than 0.25.2', versionNumberGt('v0.25.2', '0.25.2'), false)
+check('0.25.3 is newer than 0.25.2', versionNumberGt('0.25.3', '0.25.2'), true)
+check('1.0 is not newer than 1.0.0', versionNumberGt('1.0', '1.0.0'), false)
+check('1.0.1 is newer than 1.0', versionNumberGt('1.0.1', '1.0'), true)
+
+console.log('\nasync bridge results keep their outcome')
+
+/**
+ * Stands in for the native side: holds a message and its status the way
+ * AsyncJSCommunicator does, and dispatches the same events.
+ */
+function fakeBridge () {
+  const messages = new Map()
+  const statuses = new Map()
+  const target = new EventTarget()
+
+  const settle = (status) => (id, message) => {
+    messages.set(id, message)
+    statuses.set(id, status)
+    target.dispatchEvent(new Event(`${id}-${status}`))
+  }
+
+  return {
+    target,
+    resolve: settle('resolve'),
+    reject: settle('reject'),
+    bridge: {
+      getSyncStatus: (id) => statuses.get(id) ?? null,
+      getSyncMessage: (id) => {
+        const message = messages.get(id) ?? null
+        messages.delete(id)
+        statuses.delete(id)
+        return message
+      }
+    }
+  }
+}
+
+/** @returns {Promise<string>} how the promise ended, and with what */
+const outcome = (promise) => promise.then(
+  (value) => `resolved:${value}`,
+  (error) => `rejected:${error instanceof Error ? error.message : error}`
+)
+
+{
+  const { bridge, target, reject } = fakeBridge()
+  reject('a', 'File not found from given uri')
+  check(
+    'a rejection that lands before anyone listens is still a rejection',
+    await outcome(awaitAsyncResultFrom(bridge, target, 'a')),
+    'rejected:File not found from given uri'
+  )
+}
+
+{
+  const { bridge, target, resolve } = fakeBridge()
+  resolve('b', 'contents')
+  check(
+    'a resolution that lands early resolves',
+    await outcome(awaitAsyncResultFrom(bridge, target, 'b')),
+    'resolved:contents'
+  )
+}
+
+{
+  const { bridge, target, resolve } = fakeBridge()
+  resolve('c', '')
+  check(
+    'an early resolution with an empty result is not mistaken for pending',
+    await outcome(awaitAsyncResultFrom(bridge, target, 'c', 50)),
+    'resolved:'
+  )
+}
+
+{
+  const { bridge, target, reject } = fakeBridge()
+  const pending = outcome(awaitAsyncResultFrom(bridge, target, 'd'))
+  reject('d', 'nope')
+  check('a rejection that lands later rejects', await pending, 'rejected:nope')
+}
+
+{
+  const { bridge, target, resolve } = fakeBridge()
+  const pending = outcome(awaitAsyncResultFrom(bridge, target, 'e'))
+  resolve('e', 'late')
+  check('a resolution that lands later resolves', await pending, 'resolved:late')
+}
+
+{
+  const { bridge, target } = fakeBridge()
+  check(
+    'nothing arriving at all times out',
+    await outcome(awaitAsyncResultFrom(bridge, target, 'f', 10)),
+    'rejected:Async result timed out: f'
+  )
+}
 
 console.log(`\n${passed} passed, ${failed} failed\n`)
 

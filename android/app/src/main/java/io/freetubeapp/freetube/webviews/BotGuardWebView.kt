@@ -8,64 +8,80 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import io.freetubeapp.freetube.javascript.BotGuardJavascriptInterface
-import io.freetubeapp.freetube.javascript.consoleLog
 import org.json.JSONObject
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
 class BotGuardWebView @JvmOverloads constructor(
   context: Context, attrs: AttributeSet? = null
-) :
-  // no need to communicate window visibility to botguard
-  BackgroundPlayWebView(context, attrs) {
+) : WebView(context, attrs) {
     val jsInterface = BotGuardJavascriptInterface()
     init {
-      clearCache(true)
       @SuppressLint("SetJavaScriptEnabled")
       settings.javaScriptEnabled = true
-      @Suppress("DEPRECATION")
-      settings.allowUniversalAccessFromFileURLs = true
+      settings.allowFileAccess = false
       addJavascriptInterface(jsInterface, "Android")
       webViewClient = object : WebViewClient() {
         override fun shouldInterceptRequest(
           view: WebView?,
           request: WebResourceRequest?
         ): WebResourceResponse? {
-          if (request?.url.toString().startsWith("data:text/html") || request?.url.toString().startsWith("https://www.youtube.com/api/jnn/v1/GenerateIT")) {
+          if (request == null) {
+            return null
+          }
+          val url = request.url.toString()
+          if (url.startsWith("data:text/html") || url.startsWith("https://www.youtube.com/api/jnn/v1/GenerateIT")) {
             return super.shouldInterceptRequest(view, request)
           }
-          with(URL(request?.url.toString()).openConnection() as HttpURLConnection) {
-            requestMethod = request?.method
-            // map headers
-            val headers = request?.requestHeaders
-            if (headers != null) {
-              for (header in headers) {
-                setRequestProperty(header.key, header.value)
+          if (request.method != "GET") {
+            return super.shouldInterceptRequest(view, request)
+          }
+          val openConnection = try {
+            URL(url).openConnection() as HttpURLConnection
+          } catch (_: Exception) {
+            return super.shouldInterceptRequest(view, request)
+          }
+          try {
+            openConnection.connectTimeout = 10000
+            openConnection.readTimeout = 15000
+            openConnection.requestMethod = "GET"
+            openConnection.setRequestProperty("Accept-Encoding", "identity")
+            val headers = request.requestHeaders
+            for (header in headers) {
+              if (!header.key.equals("Accept-Encoding", ignoreCase = true)) {
+                openConnection.setRequestProperty(header.key, header.value)
               }
             }
 
-            if (url.toString().startsWith("https://www.youtube.com/youtubei/")) {
-              setRequestProperty("Referer", "https://www.youtube.com/")
-              setRequestProperty("Origin", "https://www.youtube.com")
-              setRequestProperty("Sec-Fetch-Site", "same-origin")
-              setRequestProperty("Sec-Fetch-Mode", "same-origin")
-              setRequestProperty("X-Youtube-Bootstrap-Logged-In", "false")
+            if (url.startsWith("https://www.youtube.com/youtubei/")) {
+              openConnection.setRequestProperty("Referer", "https://www.youtube.com/")
+              openConnection.setRequestProperty("Origin", "https://www.youtube.com")
+              openConnection.setRequestProperty("Sec-Fetch-Site", "same-origin")
+              openConnection.setRequestProperty("Sec-Fetch-Mode", "same-origin")
+              openConnection.setRequestProperty("X-Youtube-Bootstrap-Logged-In", "false")
             }
-            if (url.toString().startsWith("https://www.google.com/js/")) {
-              setRequestProperty("referer", "https://www.google.com/")
-              setRequestProperty("origin", "https://www.google.com")
-              setRequestProperty("Sec-Fetch-Dest", "script")
-              setRequestProperty("Sec-Fetch-Site", "cross-site")
-              setRequestProperty("Accept-Language", "*")
+            if (url.startsWith("https://www.google.com/js/")) {
+              openConnection.setRequestProperty("referer", "https://www.google.com/")
+              openConnection.setRequestProperty("origin", "https://www.google.com")
+              openConnection.setRequestProperty("Sec-Fetch-Dest", "script")
+              openConnection.setRequestProperty("Sec-Fetch-Site", "cross-site")
+              openConnection.setRequestProperty("Accept-Language", "*")
             }
 
-            try {
-              // 🧝‍♀️ magic
-              return WebResourceResponse(this.contentType, this.contentEncoding, inputStream)
-            } catch (ex: Exception) {
-              consoleLog(ex.stackTraceToString(), "error")
-              return super.shouldInterceptRequest(view, request)
-            }
+            val contentTypeHeader = openConnection.contentType
+            val mime = contentTypeHeader?.substringBefore(';')?.trim() ?: "application/octet-stream"
+            val charset = contentTypeHeader
+              ?.substringAfter("charset=", missingDelimiterValue = "")
+              ?.substringBefore(';')
+              ?.trim()
+              ?.ifBlank { null }
+            val stream = DisconnectingInputStream(openConnection, openConnection.inputStream)
+            return WebResourceResponse(mime, charset, stream)
+          } catch (_: Exception) {
+            openConnection.disconnect()
+            return super.shouldInterceptRequest(view, request)
           }
         }
       }
@@ -74,5 +90,18 @@ class BotGuardWebView @JvmOverloads constructor(
 
   constructor(context: Context, onConsoleMessage: (JSONObject) -> Unit = {}): this(context, null) {
     webChromeClient = ConsoleLogChromeClient(onConsoleMessage)
+  }
+}
+
+private class DisconnectingInputStream(
+  private val connection: HttpURLConnection,
+  input: InputStream
+) : FilterInputStream(input) {
+  override fun close() {
+    try {
+      super.close()
+    } finally {
+      connection.disconnect()
+    }
   }
 }

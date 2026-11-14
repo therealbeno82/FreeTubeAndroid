@@ -52,6 +52,7 @@
         :type="inputType"
         :placeholder="placeholder"
         :disabled="disabled"
+        :readonly="readOnly"
         :spellcheck="false"
         :aria-label="showLabel ? null : placeholder"
         @input="handleInput"
@@ -171,6 +172,10 @@ const props = defineProps({
     default: false
   },
   disabled: {
+    type: Boolean,
+    default: false
+  },
+  readOnly: {
     type: Boolean,
     default: false
   },

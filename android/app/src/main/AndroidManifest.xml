@@ -28,7 +28,7 @@
     android:xlargeScreens="true" />
 
   <application
-    android:allowBackup="true"
+    android:allowBackup="false"
     android:dataExtractionRules="@xml/data_extraction_rules"
     android:fullBackupContent="@xml/backup_rules"
     android:icon="@mipmap/ic_launcher"
@@ -48,12 +48,13 @@
     </service>
 
     <receiver android:name=".MediaControlsReceiver"
-      android:exported="true">
+      android:exported="false">
       <intent-filter>
-        <action android:name="play" />
-        <action android:name="pause" />
-        <action android:name="previous" />
-        <action android:name="next" />
+        <action android:name="io.freetubeapp.freetube.play" />
+        <action android:name="io.freetubeapp.freetube.pause" />
+        <action android:name="io.freetubeapp.freetube.previous" />
+        <action android:name="io.freetubeapp.freetube.next" />
+        <action android:name="io.freetubeapp.freetube.dismiss" />
       </intent-filter>
     </receiver>
 

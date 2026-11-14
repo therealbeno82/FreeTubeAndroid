@@ -185,6 +185,9 @@ const PLAYER_SELECTOR = '.ftVideoPlayer'
 /** FtPrompt already walks its own button row horizontally, and wraps around while doing it. */
 const PROMPT_SELECTOR = '.prompt'
 
+/** TV search overlay: keep vertical keys for suggestion navigation, but allow horizontal to leave the input. */
+const TV_SEARCH_SELECTOR = '.tvSearchOverlay'
+
 const HIDDEN_SELECTOR = '[inert], [aria-hidden="true"]'
 
 /** Input types where the arrow keys change the value rather than doing nothing. */
@@ -216,6 +219,11 @@ export function ownsArrowKeys(element, key) {
   }
 
   if (tagName === 'INPUT' && EDITABLE_INPUT_TYPES.has((element.type || 'text').toLowerCase())) {
+    // On television the search overlay's input should still handle Up/Down for
+    // suggestion navigation, but Left/Right must move focus to the filter button.
+    if (element.closest(TV_SEARCH_SELECTOR) !== null) {
+      return key === 'ArrowUp' || key === 'ArrowDown'
+    }
     return true
   }
 

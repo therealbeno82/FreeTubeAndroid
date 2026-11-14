@@ -75,7 +75,7 @@ await writeFile(background, backgroundXML)
  * @param {string} value
  */
 function replaceItem(xml, name, value) {
-  return xml.replace(new RegExp(`<item name="android:${name}">[^"]*?<\/item>`), `<item name="android:${name}">${value}</item>`)
+  return xml.replace(new RegExp(`<item name="android:${name}">[^"]*?</item>`), `<item name="android:${name}">${value}</item>`)
 }
 
 async function constructThemePath(isDark = false, version = 0) {

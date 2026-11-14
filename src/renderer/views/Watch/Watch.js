@@ -58,7 +58,6 @@ import { useI18n } from 'vue-i18n'
 import {
   createMediaSession
 } from '../../helpers/android/media-session'
-import { isTelevision } from '../../helpers/android/system'
 import android from 'android'
 
 const MANIFEST_TYPE_DASH = 'application/dash+xml'
@@ -363,9 +362,11 @@ export default defineComponent({
     this.currentPlaybackRate = this.$store.getters.getDefaultPlayback
   },
   mounted: function () {
-    window.addEventListener('media-next', this.mediaNext)
-    window.addEventListener('media-previous', this.mediaPrevious)
-    window.addEventListener('media-seek', this.mediaSeek)
+    if (process.env.IS_ANDROID) {
+      window.addEventListener('media-next', this.mediaNext)
+      window.addEventListener('media-previous', this.mediaPrevious)
+      window.addEventListener('media-seek', this.mediaSeek)
+    }
     this.onMountedDependOnLocalStateLoading()
   },
   beforeUnmount() {
@@ -521,9 +522,9 @@ export default defineComponent({
     },
 
     setViewingModeOnFirstLoad: function () {
-      // On Android TV, always start in fullscreen — remote has no way to reach the
-      // inline fullscreen button, and windowed playback is too small at TV distance.
-      if (isTelevision()) {
+      // On Android always start in fullscreen — a touchscreen has no keyboard shortcut
+      // for the inline fullscreen button either, and windowed playback is too small.
+      if (process.env.IS_ANDROID) {
         this.startNextVideoInFullscreen = true
         return
       }
@@ -545,7 +546,7 @@ export default defineComponent({
     },
 
     setViewingModeOnRouteChange: function () {
-      if (isTelevision()) {
+      if (process.env.IS_ANDROID) {
         this.startNextVideoInFullscreen = true
         return
       }

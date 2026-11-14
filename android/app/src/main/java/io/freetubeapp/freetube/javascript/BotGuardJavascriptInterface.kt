@@ -1,32 +1,24 @@
 package io.freetubeapp.freetube.javascript
 
 import android.webkit.JavascriptInterface
-import io.freetubeapp.freetube.helpers.Promise
+import java.util.concurrent.atomic.AtomicBoolean
 
 class BotGuardJavascriptInterface {
-  lateinit var resolve: (String) -> Unit
-  lateinit var reject: (String) -> Unit
-  var promise: Promise<String, String> = Promise {
-    resolve, reject ->
-      this.resolve = resolve
-      this.reject = reject
-  }
+  @Volatile var onReturn: ((String) -> Unit)? = null
+  @Volatile var onReject: ((String) -> Unit)? = null
+  private val settled = AtomicBoolean(false)
 
   @JavascriptInterface
   fun returnToken(token: String) {
-    resolve(token)
+    if (settled.compareAndSet(false, true)) {
+      onReturn?.invoke(token)
+    }
   }
 
   @JavascriptInterface
   fun rejectToken(error: String) {
-    reject(error)
-  }
-
-  fun onReturn(callback: (String) -> Unit) {
-    promise.then(callback)
-  }
-
-  fun onReject(callback: (String) -> Unit) {
-    promise.catch(callback)
+    if (settled.compareAndSet(false, true)) {
+      onReject?.invoke(error)
+    }
   }
 }

@@ -90,16 +90,60 @@ player's volume binding costs nothing: a remote's volume buttons are handled by 
 and never reach the app. Chrome draws no focus ring for programmatic focus on a
 `tabindex="-1"` element, hence the explicit `.ftVideoPlayer:focus` rule.
 
-On a television the player also auto-enters fullscreen as soon as the video loads
-(`Watch.js` forces `startInFullscreen` when `isTelevision()` is true, and
+The player auto-enters fullscreen as soon as the video loads, **on every Android device,
+not only televisions** — a deliberate exception to the "gated on `isTelevision()`" rule
+(`Watch.js` forces `startInFullscreen` under `process.env.IS_ANDROID`, and
 `ft-shaka-video-player.js` calls `controls.toggleFullScreen()`; `MainActivity.kt`
 intercepts the system Back button to call `FreeTubeWebView.exitFullscreen()`).
-That covers the missing on-screen fullscreen button — a remote never had a way to
-reach it via spatial navigation. If the Fullscreen API is blocked (requires a user
-gesture on some WebViews) the player falls back to `fullWindow`.
+On a television that covers the missing on-screen fullscreen button — a remote never had
+a way to reach it via spatial navigation. If the Fullscreen API is blocked (requires a
+user gesture on some WebViews) the player falls back to `fullWindow`; it waits for
+`fullscreenchange` before deciding, because `document.fullscreenElement` is not always
+set by the time the request settles.
+
+**Search.** A television has no usable soft keyboard flow for the top-bar search box, so
+`TopNav` hides it there and `SideNav` gains a Search entry that opens
+`TvSearchOverlay` — a teleported dialog with its own d-pad keyboard
+(`TvVirtualKeyboard`). The overlay calls `android.suppressInputMethod()` so the system
+keyboard does not open over it. On a television the side nav is always expanded.
+
+Focus inside the overlay is steered by its own `window`-level capturing key handler
+(`handleEscape`), which has to sit on `window` to run ahead of spatial navigation's
+`document` one:
+
+- It opens with focus on the first key, not the input. A focused input drops its
+  suggestions over the top row of keys.
+- Up from the top row goes to the input. Spatial navigation alone would pick the input's
+  clear button, which is invisible until the input has focus but still a candidate.
+- In the input, Up/Down walk the suggestions (`ownsArrowKeys` leaves them to `FtInput`)
+  and Enter picks the highlighted one. `FtInput` wraps from the last suggestion to the
+  top, so Down from the last one, or with none showing, moves on to the keys instead. The
+  move is deferred with `setTimeout`, not `nextTick`: a microtask runs between listeners
+  and spatial navigation would then act on the same press.
+
+**Styling.** `src/renderer/styles/tv.css` holds the television look, every rule scoped to
+`.app.tv` (`App.vue` sets the class). Its `:root` tokens are unscoped and are what
+`TvVirtualKeyboard` is coloured with.
 
 Candidates are collected from `document.fullscreenElement` when there is one, so focus
 cannot escape to elements that are not on screen.
+
+### TV emulator
+
+An Android TV AVD (`FreeTubeTV`, tv_1080p, API 36 android-tv x86_64, AEHD-accelerated)
+is set up for fast iteration without shuttling APKs to a real TV. It reports
+`android.hardware.type.television` + `android.software.leanback`, so `isTelevision()`
+is true and every TV code path activates.
+
+- Launch: `& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd FreeTubeTV`
+- `pnpm run tv:install` — rebuild webpack (BotGuard script, then the **development**
+  renderer build) + gradlew, `adb install -r`, relaunch the app (the whole iterate loop).
+  Pass `-- -NoWebpack` to skip the webpack rebuild, `-- -Production` to pack the renderer
+  the way a release is.
+- `pnpm run tv:run -- up` — send remote key events to the emulator to drive the D-pad
+  from the terminal. Supports `up/down/left/right/enter/back/home/search/menu/space/backspace`
+  and the alphabet/digits. Multiple keys: `pnpm run tv:run -- down right enter`.
+- Scripts live in `_scripts/tv/` (`install.ps1`, `key.ps1`).
 
 ### Known gaps
 
@@ -113,7 +157,7 @@ cannot escape to elements that are not on screen.
 
 Applied from the review at https://claude.ai/code/artifact/0d76c1e4-d8c3-4cbc-8802-49a566943e76 — crash / data-loss / ANR fixes, plus the TV windowed-playback fix requested after testing (2026-08-31):
 
-- `android/app/build.gradle.kts:35` `versionCode` now `major*10000000 + minor*100000 + patch*1000` (was `minor*10000000`, so `0.25.2` and `1.24.2` collided).
+- (superseded 2026-11-13, see below) `android/app/build.gradle.kts:35` `versionCode` now `major*10000000 + minor*100000 + patch*1000` (was `minor*10000000`, so `0.25.2` and `1.24.2` collided).
 - `helpers/android/utils.js:97` `versionNumberGt()` strips leading `v` before split, so `v0.25.2` comparisons work.
 - `android/app/src/main/java/io/freetubeapp/freetube/KeepAliveService.kt:17` `onBind` returns `null` instead of `TODO()` (was `NotImplementedError` on bind).
 - `android/app/src/main/java/io/freetubeapp/freetube/helpers/ContentResolverExtensions.kt:12` `readBytes`/`writeBytes` use `use {}` so streams close on exception.
@@ -127,13 +171,44 @@ Applied from the review at https://claude.ai/code/artifact/0d76c1e4-d8c3-4cbc-88
 - `src/renderer/helpers/android/nedb.js:131` missing `return` on `unlinkAsync`/`mkdirAsync`/`ensureParentDirectoryExistsAsync`/`ensureDatafileIntegrityAsync` added; `crashSafeWriteFileLinesAsync:170` clones `lines` before appending.
 - `src/renderer/views/Watch/Watch.js:523` forces `startInFullscreen` when `isTelevision()` is true (first load and route change) — windowed playback unusable with a remote. `src/renderer/components/ft-shaka-video-player/ft-shaka-video-player.js:3096` handles `startInFullscreen` on `IS_ANDROID` + TV via `controls.toggleFullScreen()` with `fullWindow` fallback; `MainActivity.kt:96` intercepts Back to `FreeTubeWebView.exitFullscreen()`; `FreeTubeWebView.kt:40` tracks `fullscreenView`/`fullscreenCallback` correctly and exposes `isInFullscreen`/`exitFullscreen`.
 
-## Pre-existing issues
+## Fixes applied (2026-11-13)
 
-Not introduced by the television work — do not be alarmed by them:
+From the second review, https://claude.ai/artifact/Mge7qR4LvXfjwbXM7LGuPK (all numbered
+findings fixed; the cleanups and enhancements it lists are still open):
 
-- `pnpm run lint` **fails on a clean checkout**: an `eqeqeq` error in
-  `ft-shaka-video-player.js` and an unused `marked` import in `App.vue`. Unnoticed because
-  `testAndroid.yml` runs lint with `continue-on-error: true`.
+- **Async bridge outcome.** `AsyncJSCommunicator` records `resolve`/`reject` beside each
+  stored message and the bridge exposes it as `getSyncStatus`. Before, a call that finished
+  before the page started listening was always treated as resolved, so an error message
+  could come back as a result. The waiting logic lives in `helpers/android/asyncResult.js`,
+  kept free of the bridge so the test file can cover it.
+- **Datafile journal.** `nedb.js` `crashSafeWriteFileLinesAsync` writes the new contents
+  to `<name>.db~` (length header first), then the datafile, then empties the journal;
+  `ensureDatafileIntegrityAsync` restores from a complete journal on load. So every
+  database has an (normally empty) `~` sibling in the data directory — do not delete the
+  mechanism as dead files. `readFileAsync` now throws when an existing file cannot be
+  read instead of returning `''`, which nedb would have saved back as an empty database.
+- **Version code** is `major*100000000 + minor*1000000 + patch*10000 + build`; the build
+  fails if a part outgrows its width (build <= 9999) rather than colliding.
+- `KeepAliveService` catches a refused `startForeground`; `MediaSessionFacade.decodeArt`
+  no longer throws on a malformed URL; `MainActivity` sets window attributes back so the
+  cutout mode applies; `FreeTubeWebView` uses safe casts on its parent;
+  `WebviewExtensions.dispatchEvent` quotes event names.
+- `FtaLogViewer` escapes the log backlog as well as live messages and uses `v-safer-html`.
+- Trending restored in `SideNav.vue` (it was dropped when the television search entry was
+  added).
+- The television Backspace-goes-home shortcut in `App.vue` does nothing while any prompt
+  is open (the search overlay counts as one) or a modifier key is held.
+- `testAndroid.yml` uses pnpm like the other workflows, builds only `assembleDebug`, and
+  no longer lets lint fail silently. Not run since the change — it needs a push to `test`.
 
-A fuller review of the codebase (19 findings across the bridge, storage and release
-pipeline) is at https://claude.ai/code/artifact/0d76c1e4-d8c3-4cbc-8802-49a566943e76
+## Lint status
+
+As of 2026-11-13 eslint and stylelint both report **zero errors** (eslint has 9
+warnings left, all unused variables or undefined globals in upstream files), and
+`testAndroid.yml` now fails on a lint error, so keep it that way. The i18n lint rule reads
+`static/locales-android/en-US.yaml` as well as `static/locales`, which is where the
+Android-only strings live. `sigViewScript.js` carries a deliberate `no-new-func`
+disable: running the code it is handed is its job.
+
+The first review (19 findings across the bridge, storage and release pipeline) is at
+https://claude.ai/code/artifact/0d76c1e4-d8c3-4cbc-8802-49a566943e76

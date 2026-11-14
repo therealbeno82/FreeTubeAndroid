@@ -8,6 +8,32 @@
       class="inner"
       :class="applyHiddenLabels"
     >
+      <button
+        v-if="isOnTelevision && !hideSearchBar"
+        class="navOption tvSearchNavOption"
+        :title="t('Search / Go to URL')"
+        :aria-label="t('Search / Go to URL')"
+        @click="openTvSearch"
+      >
+        <div
+          class="thumbnailContainer"
+        >
+          <FontAwesomeIcon
+            :icon="['fas', 'search']"
+            class="navIcon"
+            :class="applyNavIconExpand"
+          />
+        </div>
+        <p
+          class="navLabel"
+        >
+          {{ t('Search') }}
+        </p>
+      </button>
+      <TvSearchOverlay
+        v-if="showTvSearch"
+        @close="closeTvSearch"
+      />
       <router-link
         class="navOption topNavOption mobileShow "
         role="button"
@@ -255,17 +281,19 @@
 
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import FtFlexBox from '../ft-flex-box/ft-flex-box.vue'
 import SideNavMoreOptions from '../SideNavMoreOptions/SideNavMoreOptions.vue'
+import TvSearchOverlay from '../TvSearchOverlay/TvSearchOverlay.vue'
 
 import store from '../../store/index'
 
 import { youtubeImageUrlToInvidious } from '../../helpers/api/invidious'
 import { deepCopy, localizeAndAddKeyboardShortcutToActionTitle } from '../../helpers/utils'
 import { KeyboardShortcuts } from '../../../constants'
+import { isTelevision } from '../../helpers/android/system'
 
 const { locale, t } = useI18n()
 
@@ -273,7 +301,8 @@ const SUPPORTS_LOCAL_API = process.env.SUPPORTS_LOCAL_API
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const isOpen = computed(() => {
-  return store.getters.getIsSideNavOpen
+  // On TV the sidebar is always expanded: no collapsible icon rail / pop-out.
+  return isTelevision() || store.getters.getIsSideNavOpen
 })
 
 /** @type {import('vue').ComputedRef<boolean>} */
@@ -385,6 +414,28 @@ const showLogViewer = () => {
 }
 
 const enableChannelLinks = computed(() => !store.getters.getDisableChannelLinks)
+
+const isOnTelevision = isTelevision()
+const hideSearchBar = computed(() => store.getters.getHideSearchBar)
+const showTvSearch = ref(false)
+
+function openTvSearch() {
+  showTvSearch.value = true
+}
+
+function closeTvSearch() {
+  showTvSearch.value = false
+}
 </script>
 
 <style scoped src="./SideNav.css" />
+<style scoped>
+.tvSearchNavOption {
+  background: transparent;
+  border: none;
+  inline-size: 100%;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+</style>

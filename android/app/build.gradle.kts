@@ -21,18 +21,25 @@ fun getVersionInfo(project: Project): VersionInfo {
   val appName = "io.freetubeapp." + packageJson["name"]
   val parts = versionName.split("-")
   val numbers = parts[0].split(".")
-  val major = numbers[0].toInt()
-  val minor = numbers[1].toInt()
-  val patch = numbers[2].toInt()
-  var build = 0
-  if (parts.size > 2) {
-    println(parts)
-    build = parts[2].toInt()
-  } else if (numbers.size > 3) {
-    build = numbers[3].toInt()
+  val major = numbers.getOrNull(0)?.toIntOrNull() ?: 0
+  val minor = numbers.getOrNull(1)?.toIntOrNull() ?: 0
+  val patch = numbers.getOrNull(2)?.toIntOrNull() ?: 0
+  // "0.25.2-nightly-123" carries the build after the second dash, "0.25.2.123" as a
+  // fourth number. anything else, "1.0.0-beta" say, has no build number
+  val build = if (parts.size > 2) {
+    parts[2].toIntOrNull() ?: 0
+  } else {
+    numbers.getOrNull(3)?.toIntOrNull() ?: 0
   }
 
-  val versionCode = major * 10000000 + minor * 100000 + patch * 1000 + build
+  // Each part has a fixed width in the version code, so one that outgrows its width would
+  // silently produce the code of a different version. Fail the build instead.
+  require(major in 0..20 && minor in 0..99 && patch in 0..99 && build in 0..9999) {
+    "version $versionName does not fit the version code scheme " +
+      "(major <= 20, minor <= 99, patch <= 99, build <= 9999)"
+  }
+
+  val versionCode = major * 100000000 + minor * 1000000 + patch * 10000 + build
 
   return VersionInfo(appName, versionName, versionCode)
 }
@@ -96,5 +103,6 @@ dependencies {
 
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.media3:media3-ui:1.2.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
 }

@@ -6,18 +6,20 @@ import java.net.URLEncoder
 import java.nio.charset.Charset
 
 fun String.hexToColour() : Int {
-  return when (length) {
+  val hex = trim()
+  return try {
+    when (hex.length) {
       7 -> {
         Color.rgb(
-          Integer.valueOf(substring(1, 3), 16),
-          Integer.valueOf(substring(3, 5), 16),
-          Integer.valueOf(substring(5, 7), 16)
+          Integer.valueOf(hex.substring(1, 3), 16),
+          Integer.valueOf(hex.substring(3, 5), 16),
+          Integer.valueOf(hex.substring(5, 7), 16)
         )
       }
       4 -> {
-        val r = substring(1, 2)
-        val g = substring(2, 3)
-        val b = substring(3, 4)
+        val r = hex.substring(1, 2)
+        val g = hex.substring(2, 3)
+        val b = hex.substring(3, 4)
         Color.rgb(
           Integer.valueOf("$r$r", 16),
           Integer.valueOf("$g$g", 16),
@@ -27,6 +29,9 @@ fun String.hexToColour() : Int {
       else -> {
         Color.TRANSPARENT
       }
+    }
+  } catch (_: Exception) {
+    Color.TRANSPARENT
   }
 }
 

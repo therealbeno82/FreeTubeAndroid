@@ -7,7 +7,8 @@
       isLocaleRightToLeft: isLocaleRightToLeft,
       isSideNavOpen: isSideNavOpen,
       hideLabelsSideBar: hideLabelsSideBar && !isSideNavOpen,
-      noTapHighlight: !tapHighlight
+      noTapHighlight: !tapHighlight,
+      tv: isOnTelevision
     }"
   >
     <TopNav
@@ -108,7 +109,6 @@
 </template>
 
 <script setup>
-import { marked } from 'marked'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -136,7 +136,7 @@ import { translateWindowTitle } from './helpers/strings'
 import { loadLocale } from './i18n/index'
 
 import android from 'android'
-import { getUpdateInfo, isTelevision, updateAndroidTheme } from './helpers/android/system'
+import { getUpdateInfo, isDebugBuild, isTelevision, updateAndroidTheme } from './helpers/android/system'
 import { installSpatialNavigation } from './helpers/android/spatialNavigation'
 
 const route = useRoute()
@@ -153,10 +153,14 @@ const isOnTelevision = isTelevision()
 /** @type {(() => void) | null} */
 let uninstallSpatialNavigation = null
 
+function handleYoutubeLinkEvent({ link }) {
+  handleYoutubeLink(link)
+}
+
 const tapHighlight = computed(() => store.getters.getTapHighlight)
 
 /** @type {import('vue').ComputedRef<boolean>} */
-const isSideNavOpen = computed(() => store.getters.getIsSideNavOpen)
+const isSideNavOpen = computed(() => isOnTelevision || store.getters.getIsSideNavOpen)
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const hideLabelsSideBar = computed(() => store.getters.getHideLabelsSideBar)
@@ -217,9 +221,7 @@ onMounted(async () => {
     }
 
     if (process.env.IS_ANDROID) {
-      window.addEventListener('youtube-link', ({ link }) => {
-        handleYoutubeLink(link)
-      })
+      window.addEventListener('youtube-link', handleYoutubeLinkEvent)
       if (location.search.indexOf('?intent=') !== -1) {
         const intent = location.search.split('?intent=')[1]
         const uri = decodeURIComponent(intent)
@@ -267,6 +269,12 @@ onBeforeUnmount(() => {
 
   uninstallSpatialNavigation?.()
   uninstallSpatialNavigation = null
+
+  if (process.env.IS_ANDROID) {
+    window.removeEventListener('youtube-link', handleYoutubeLinkEvent)
+    window.removeEventListener('enabled-light-mode', updateTheme)
+    window.removeEventListener('enabled-dark-mode', updateTheme)
+  }
 })
 
 /** @type {import('vue').ComputedRef<string>} */
@@ -323,6 +331,12 @@ const updateBannerMessage = computed(() => {
 })
 
 async function checkForNewUpdates() {
+  // Debug / dev builds always look "out of date" against the latest release, so they
+  // would nag with an update banner on every launch. Only check in non-debug builds.
+  if (isDebugBuild()) {
+    return
+  }
+
   if (!checkForUpdates.value) {
     return
   }
@@ -386,6 +400,21 @@ function handleKeyboardShortcuts(event) {
 
   if (FOCUS_REVEALING_KEYS.has(event.key)) {
     store.dispatch('showOutlines')
+  }
+
+  // TV spec 4: Backspace returns Home unless in Search (then delete)
+  const hasModifier = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+  if (isOnTelevision && event.key === 'Backspace' && !hasModifier) {
+    const active = document.activeElement
+    const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+    // The search overlay registers itself as a prompt, so this covers it along with
+    // every other prompt: navigating away underneath one would leave it stranded.
+    if (isAnyPromptOpen.value || isInput) {
+      // let FtInput / virtual keyboard handle deletion
+      return
+    }
+    event.preventDefault()
+    router.push({ path: landingPage.value })
   }
 }
 
@@ -786,4 +815,5 @@ function handleDragStart(event) {
 </script>
 
 <style src="./themes.css" />
+<style src="./styles/tv.css" />
 <style scoped src="./App.css" />
